@@ -3,13 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Controller, useForm } from 'react-hook-form';
 import { Input } from '../../../ui/Controls/Input';
 import { Textarea } from '../../../ui/Controls/Textarea';
-
-interface UpstreamGroup {
-    id: string;
-    name: string;
-    upstreams: string;
-    isDefault?: boolean; // 是否为默认组
-}
+import { UpstreamGroup } from '../../../../initialState';
 
 interface UpstreamGroupsProps {
     groups: UpstreamGroup[];
@@ -289,7 +283,7 @@ const UpstreamGroups: React.FC<UpstreamGroupsProps> = ({ groups, onChange, disab
                 </button>
             )}
 
-            <style jsx>{`
+            <style>{`
                 .upstream-groups {
                     margin-top: 2rem;
                     padding-top: 2rem;

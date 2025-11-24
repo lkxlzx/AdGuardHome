@@ -7,14 +7,7 @@ import UpstreamGroups from './UpstreamGroups';
 
 import Card from '../../../ui/Card';
 import { setDnsConfig } from '../../../../actions/dnsConfig';
-import { RootState } from '../../../../initialState';
-
-interface UpstreamGroup {
-    id: string;
-    name: string;
-    upstreams: string;
-    isDefault?: boolean;
-}
+import { RootState, UpstreamGroup } from '../../../../initialState';
 
 const Upstream = () => {
     const { t } = useTranslation();

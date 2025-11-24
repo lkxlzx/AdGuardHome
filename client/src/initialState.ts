@@ -302,6 +302,13 @@ export type DhcpData = {
     interfaces?: DhcpInterface[];
 };
 
+export interface UpstreamGroup {
+    id: string;
+    name: string;
+    upstreams: string;
+    isDefault?: boolean;
+}
+
 export type DnsConfigData = {
     processingGetConfig: boolean;
     processingSetConfig: boolean;
@@ -324,6 +331,7 @@ export type DnsConfigData = {
     resolve_clients: boolean;
     use_private_ptr_resolvers: boolean;
     default_local_ptr_upstreams: any[];
+    upstream_groups?: UpstreamGroup[];
     ratelimit_subnet_len_ipv4?: number;
     ratelimit_subnet_len_ipv6?: number;
     edns_cs_use_custom?: boolean;
