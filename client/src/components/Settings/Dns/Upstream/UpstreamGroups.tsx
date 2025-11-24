@@ -1,0 +1,334 @@
+import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Controller, useForm } from 'react-hook-form';
+import { Input } from '../../../ui/Controls/Input';
+import { Textarea } from '../../../ui/Controls/Textarea';
+
+interface UpstreamGroup {
+    id: string;
+    name: string;
+    upstreams: string;
+}
+
+interface UpstreamGroupsProps {
+    groups: UpstreamGroup[];
+    onChange: (groups: UpstreamGroup[]) => void;
+    disabled?: boolean;
+}
+
+const UpstreamGroups: React.FC<UpstreamGroupsProps> = ({ groups, onChange, disabled }) => {
+    const { t } = useTranslation();
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [isAdding, setIsAdding] = useState(false);
+
+    const { control, handleSubmit, reset } = useForm<{ name: string; upstreams: string }>({
+        defaultValues: { name: '', upstreams: '' },
+    });
+
+    const handleAdd = () => {
+        setIsAdding(true);
+        reset({ name: '', upstreams: '' });
+    };
+
+    const handleEdit = (group: UpstreamGroup) => {
+        setEditingId(group.id);
+        reset({ name: group.name, upstreams: group.upstreams });
+    };
+
+    const handleSave = (data: { name: string; upstreams: string }) => {
+        if (!data.name.trim() || !data.upstreams.trim()) {
+            return;
+        }
+
+        if (isAdding) {
+            const newGroup: UpstreamGroup = {
+                id: `group_${Date.now()}`,
+                name: data.name.trim(),
+                upstreams: data.upstreams.trim(),
+            };
+            onChange([...groups, newGroup]);
+            setIsAdding(false);
+        } else if (editingId) {
+            const updatedGroups = groups.map((g) =>
+                g.id === editingId
+                    ? { ...g, name: data.name.trim(), upstreams: data.upstreams.trim() }
+                    : g
+            );
+            onChange(updatedGroups);
+            setEditingId(null);
+        }
+
+        reset({ name: '', upstreams: '' });
+    };
+
+    const handleCancel = () => {
+        setIsAdding(false);
+        setEditingId(null);
+        reset({ name: '', upstreams: '' });
+    };
+
+    const handleDelete = (id: string) => {
+        if (window.confirm(t('upstream_group_confirm_delete'))) {
+            onChange(groups.filter((g) => g.id !== id));
+        }
+    };
+
+    return (
+        <div className="upstream-groups">
+            <div className="upstream-groups__header">
+                <h4 className="upstream-groups__title">{t('upstream_groups_title')}</h4>
+                <p className="form__desc">{t('upstream_groups_desc')}</p>
+            </div>
+
+            {groups.length > 0 && (
+                <div className="upstream-groups__list">
+                    {groups.map((group) => (
+                        <div key={group.id} className="upstream-group-item">
+                            {editingId === group.id ? (
+                                <form onSubmit={handleSubmit(handleSave)} className="upstream-group-form">
+                                    <div className="form-group">
+                                        <label htmlFor={`edit-name-${group.id}`}>
+                                            {t('upstream_group_name')}
+                                        </label>
+                                        <Controller
+                                            name="name"
+                                            control={control}
+                                            rules={{ required: true }}
+                                            render={({ field }) => (
+                                                <Input
+                                                    {...field}
+                                                    id={`edit-name-${group.id}`}
+                                                    placeholder={t('upstream_group_name_placeholder')}
+                                                    disabled={disabled}
+                                                />
+                                            )}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label htmlFor={`edit-upstreams-${group.id}`}>
+                                            {t('upstream_group_servers')}
+                                        </label>
+                                        <Controller
+                                            name="upstreams"
+                                            control={control}
+                                            rules={{ required: true }}
+                                            render={({ field }) => (
+                                                <Textarea
+                                                    {...field}
+                                                    id={`edit-upstreams-${group.id}`}
+                                                    placeholder={t('upstream_group_servers_placeholder')}
+                                                    disabled={disabled}
+                                                    rows={3}
+                                                />
+                                            )}
+                                        />
+                                    </div>
+                                    <div className="upstream-group-actions">
+                                        <button
+                                            type="submit"
+                                            className="btn btn-sm btn-success"
+                                            disabled={disabled}>
+                                            {t('save')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn btn-sm btn-secondary"
+                                            onClick={handleCancel}
+                                            disabled={disabled}>
+                                            {t('cancel')}
+                                        </button>
+                                    </div>
+                                </form>
+                            ) : (
+                                <div className="upstream-group-display">
+                                    <div className="upstream-group-header">
+                                        <h5 className="upstream-group-name">{group.name}</h5>
+                                        <div className="upstream-group-buttons">
+                                            <button
+                                                type="button"
+                                                className="btn btn-sm btn-outline-primary"
+                                                onClick={() => handleEdit(group)}
+                                                disabled={disabled || isAdding || editingId !== null}>
+                                                {t('edit')}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn btn-sm btn-outline-danger"
+                                                onClick={() => handleDelete(group.id)}
+                                                disabled={disabled || isAdding || editingId !== null}>
+                                                {t('delete')}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="upstream-group-content">
+                                        <pre className="upstream-group-servers">{group.upstreams}</pre>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {isAdding && (
+                <div className="upstream-group-item upstream-group-item--new">
+                    <form onSubmit={handleSubmit(handleSave)} className="upstream-group-form">
+                        <div className="form-group">
+                            <label htmlFor="new-group-name">{t('upstream_group_name')}</label>
+                            <Controller
+                                name="name"
+                                control={control}
+                                rules={{ required: true }}
+                                render={({ field }) => (
+                                    <Input
+                                        {...field}
+                                        id="new-group-name"
+                                        placeholder={t('upstream_group_name_placeholder')}
+                                        disabled={disabled}
+                                    />
+                                )}
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label htmlFor="new-group-upstreams">{t('upstream_group_servers')}</label>
+                            <Controller
+                                name="upstreams"
+                                control={control}
+                                rules={{ required: true }}
+                                render={({ field }) => (
+                                    <Textarea
+                                        {...field}
+                                        id="new-group-upstreams"
+                                        placeholder={t('upstream_group_servers_placeholder')}
+                                        disabled={disabled}
+                                        rows={3}
+                                    />
+                                )}
+                            />
+                        </div>
+                        <div className="upstream-group-actions">
+                            <button type="submit" className="btn btn-sm btn-success" disabled={disabled}>
+                                {t('add')}
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-sm btn-secondary"
+                                onClick={handleCancel}
+                                disabled={disabled}>
+                                {t('cancel')}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
+
+            {!isAdding && editingId === null && (
+                <button
+                    type="button"
+                    className="btn btn-outline-success btn-sm mt-3"
+                    onClick={handleAdd}
+                    disabled={disabled}>
+                    <i className="fa fa-plus mr-2" />
+                    {t('upstream_group_add')}
+                </button>
+            )}
+
+            <style jsx>{`
+                .upstream-groups {
+                    margin-top: 2rem;
+                    padding-top: 2rem;
+                    border-top: 1px solid #dee2e6;
+                }
+
+                .upstream-groups__header {
+                    margin-bottom: 1.5rem;
+                }
+
+                .upstream-groups__title {
+                    font-size: 1.1rem;
+                    font-weight: 600;
+                    margin-bottom: 0.5rem;
+                }
+
+                .upstream-groups__list {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 1rem;
+                    margin-bottom: 1rem;
+                }
+
+                .upstream-group-item {
+                    border: 1px solid #dee2e6;
+                    border-radius: 4px;
+                    padding: 1rem;
+                    background-color: #f8f9fa;
+                }
+
+                .upstream-group-item--new {
+                    background-color: #e7f3ff;
+                    border-color: #0d6efd;
+                }
+
+                .upstream-group-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 0.75rem;
+                }
+
+                .upstream-group-name {
+                    font-size: 1rem;
+                    font-weight: 600;
+                    margin: 0;
+                    color: #495057;
+                }
+
+                .upstream-group-buttons {
+                    display: flex;
+                    gap: 0.5rem;
+                }
+
+                .upstream-group-content {
+                    margin-top: 0.5rem;
+                }
+
+                .upstream-group-servers {
+                    background-color: #fff;
+                    border: 1px solid #ced4da;
+                    border-radius: 4px;
+                    padding: 0.75rem;
+                    margin: 0;
+                    font-size: 0.875rem;
+                    color: #495057;
+                    white-space: pre-wrap;
+                    word-break: break-all;
+                }
+
+                .upstream-group-form {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 1rem;
+                }
+
+                .upstream-group-actions {
+                    display: flex;
+                    gap: 0.5rem;
+                }
+
+                .form-group {
+                    margin-bottom: 0;
+                }
+
+                .form-group label {
+                    display: block;
+                    margin-bottom: 0.5rem;
+                    font-weight: 500;
+                    font-size: 0.875rem;
+                    color: #495057;
+                }
+            `}</style>
+        </div>
+    );
+};
+
+export default UpstreamGroups;
