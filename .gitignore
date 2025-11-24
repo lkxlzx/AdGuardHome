@@ -1,0 +1,42 @@
+# This comment is used to simplify checking local copies of the file.  Bump
+# this number every time a significant change is made to this file.
+#
+# AdGuard-Project-Version: 1
+
+# Please, DO NOT put your text editors' temporary files here.  The more are
+# added, the harder it gets to maintain and manage projects' gitignores.  Put
+# them into your global gitignore file instead.
+#
+# See https://stackoverflow.com/a/7335487/1892060.
+#
+# Only build, run, and test outputs here.  Sorted.  With negations at the
+# bottom to make sure they take effect.
+*.db
+*.log
+*.out
+*.snap
+*.test
+/agh-backup/
+/bin/
+/build/*
+/client/blob-report/
+/client/playwright-report/
+/client/playwright/.cache/
+/client/test-results/
+/data/
+/dist/
+/filtering/tests/filtering.TestLotsOfRules*.pprof
+/filtering/tests/top-1m.csv
+/internal/next/AdGuardHome.yaml
+/launchpad_credentials
+/querylog.json*
+/snapcraft_login
+/test-reports/
+AdGuardHome
+AdGuardHome.exe
+AdGuardHome.yaml*
+coverage.txt
+node_modules/
+tmp/
+
+!/build/gitkeep
