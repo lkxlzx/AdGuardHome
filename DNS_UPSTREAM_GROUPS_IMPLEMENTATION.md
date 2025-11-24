@@ -19,7 +19,9 @@
 - 显示所有已创建的分组
 - 添加新分组（分组名称 + DNS 服务器列表）
 - 编辑现有分组
-- 删除分组（带确认提示）
+- 删除分组（带确认提示，默认组不可删除）
+- 设置默认组（分流规则未命中时使用）
+- 默认组特殊标识（黄色边框 + 徽章）
 - 内联编辑模式
 - 响应式设计，符合现有 UI 风格
 
@@ -29,6 +31,7 @@ interface UpstreamGroup {
     id: string;          // 唯一标识符
     name: string;        // 分组名称（用户自定义）
     upstreams: string;   // DNS 服务器列表（每行一个）
+    isDefault?: boolean; // 是否为默认组（分流未命中时使用）
 }
 ```
 
@@ -60,6 +63,7 @@ type UpstreamGroup struct {
     ID        string   `json:"id" yaml:"id"`
     Name      string   `json:"name" yaml:"name"`
     Upstreams []string `json:"upstreams" yaml:"upstreams"`
+    IsDefault bool     `json:"is_default" yaml:"is_default"` // 是否为默认组
 }
 ```
 
@@ -184,7 +188,7 @@ func (s *Server) handleGetUpstreamGroups(w http.ResponseWriter, r *http.Request)
 #### 3.4.2 DNS 查询处理
 **文件**：`internal/dnsforward/process.go`
 
-修改 `getUpstreamsByGroup` 函数以支持自定义分组：
+添加默认组支持和修改 `getUpstreamsByGroup` 函数：
 ```go
 func (s *Server) getUpstreamsByGroup(groupName string) *proxy.UpstreamConfig {
     // 首先查找用户自定义分组
@@ -197,24 +201,24 @@ func (s *Server) getUpstreamsByGroup(groupName string) *proxy.UpstreamConfig {
         }
     }
 
-    // 回退到默认分组
-    var upstreams []string
-    switch groupName {
-    case "默认上游":
-        upstreams = s.conf.UpstreamDNS
-    case "备用上游":
-        upstreams = s.conf.FallbackDNS
-    case "本地 PTR 解析器":
-        upstreams = s.conf.LocalPTRResolvers
-    default:
-        return nil
+    return nil
+}
+
+// getDefaultUpstreamGroup 获取默认上游分组
+func (s *Server) getDefaultUpstreamGroup() *proxy.UpstreamConfig {
+    // 查找标记为默认的分组
+    for _, group := range s.conf.UpstreamGroups {
+        if group.IsDefault && len(group.Upstreams) > 0 {
+            return createUpstreamConfig(group.Upstreams)
+        }
     }
 
-    if len(upstreams) == 0 {
-        return nil
+    // 如果没有设置默认组，使用系统默认上游
+    if len(s.conf.UpstreamDNS) > 0 {
+        return createUpstreamConfig(s.conf.UpstreamDNS)
     }
 
-    return createUpstreamConfig(upstreams)
+    return nil
 }
 ```
 
@@ -231,16 +235,18 @@ func (s *Server) getUpstreamsByGroup(groupName string) *proxy.UpstreamConfig {
 │ ─────────────────────────────────────────────────── │
 │                                                      │
 │ 上游 DNS 服务器分组                                  │
-│ 创建上游 DNS 服务器分组，可在 DNS 分流规则中使用     │
+│ 创建上游 DNS 服务器分组，可在 DNS 分流规则中使用。   │
+│ 未命中分流规则的查询将使用默认组                     │
 │                                                      │
 │ ┌─────────────────────────────────────────────────┐ │
-│ │ 国内 DNS                              [编辑][删除]│ │
+│ │ 国内 DNS [默认组]          [编辑][删除(禁用)]     │ │ ← 黄色边框
+│ │ 分流规则未命中时使用此组                         │ │
 │ │ 223.5.5.5                                        │ │
 │ │ 119.29.29.29                                     │ │
 │ └─────────────────────────────────────────────────┘ │
 │                                                      │
 │ ┌─────────────────────────────────────────────────┐ │
-│ │ 国外 DNS                              [编辑][删除]│ │
+│ │ 国外 DNS                  [设为默认][编辑][删除]  │ │
 │ │ 8.8.8.8                                          │ │
 │ │ 1.1.1.1                                          │ │
 │ └─────────────────────────────────────────────────┘ │
@@ -273,8 +279,13 @@ func (s *Server) getUpstreamsByGroup(groupName string) *proxy.UpstreamConfig {
 
 - 使用卡片式布局，与现有 DNS 黑名单页面风格一致
 - 浅灰色背景区分不同分组
+- **默认组使用黄色边框（2px）+ 黄色背景高亮**
+- **默认组显示蓝色"默认组"徽章**
+- **默认组显示提示文字"分流规则未命中时使用此组"**
 - 内联编辑模式，点击编辑后原地展开表单
 - 新增分组时使用蓝色边框高亮
+- 默认组的删除按钮禁用状态
+- 非默认组显示"设为默认"按钮
 - 按钮使用 Bootstrap 样式类
 - 响应式设计，移动端友好
 
@@ -284,15 +295,22 @@ func (s *Server) getUpstreamsByGroup(groupName string) *proxy.UpstreamConfig {
 - [ ] 添加新分组
 - [ ] 编辑现有分组
 - [ ] 删除分组（带确认）
+- [ ] **设置默认组**
+- [ ] **默认组不可删除（按钮禁用 + 提示）**
+- [ ] **切换默认组（只能有一个默认组）**
 - [ ] 分组名称验证（不能为空）
 - [ ] DNS 服务器列表验证（不能为空）
 - [ ] 配置保存和加载
 - [ ] 页面刷新后数据持久化
+- [ ] **默认组标识正确显示**
 
 ### 5.2 集成测试
 - [ ] DNS 分流规则可以选择自定义分组
+- [ ] **分流规则未命中时使用默认组**
+- [ ] **默认组切换后，未命中查询使用新默认组**
 - [ ] 分组删除后，使用该分组的分流规则如何处理
 - [ ] 分组重命名后，分流规则是否需要更新
+- [ ] **没有默认组时的回退机制（使用系统默认上游）**
 
 ### 5.3 UI 测试
 - [ ] 多个分组的显示效果

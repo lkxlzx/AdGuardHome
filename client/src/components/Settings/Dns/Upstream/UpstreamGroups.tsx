@@ -8,6 +8,7 @@ interface UpstreamGroup {
     id: string;
     name: string;
     upstreams: string;
+    isDefault?: boolean; // 是否为默认组
 }
 
 interface UpstreamGroupsProps {
@@ -68,9 +69,22 @@ const UpstreamGroups: React.FC<UpstreamGroupsProps> = ({ groups, onChange, disab
     };
 
     const handleDelete = (id: string) => {
+        const group = groups.find((g) => g.id === id);
+        if (group?.isDefault) {
+            alert(t('upstream_group_cannot_delete_default'));
+            return;
+        }
         if (window.confirm(t('upstream_group_confirm_delete'))) {
             onChange(groups.filter((g) => g.id !== id));
         }
+    };
+
+    const handleSetDefault = (id: string) => {
+        const updatedGroups = groups.map((g) => ({
+            ...g,
+            isDefault: g.id === id,
+        }));
+        onChange(updatedGroups);
     };
 
     return (
@@ -83,7 +97,9 @@ const UpstreamGroups: React.FC<UpstreamGroupsProps> = ({ groups, onChange, disab
             {groups.length > 0 && (
                 <div className="upstream-groups__list">
                     {groups.map((group) => (
-                        <div key={group.id} className="upstream-group-item">
+                        <div
+                            key={group.id}
+                            className={`upstream-group-item ${group.isDefault ? 'upstream-group-item--default' : ''}`}>
                             {editingId === group.id ? (
                                 <form onSubmit={handleSubmit(handleSave)} className="upstream-group-form">
                                     <div className="form-group">
@@ -142,8 +158,31 @@ const UpstreamGroups: React.FC<UpstreamGroupsProps> = ({ groups, onChange, disab
                             ) : (
                                 <div className="upstream-group-display">
                                     <div className="upstream-group-header">
-                                        <h5 className="upstream-group-name">{group.name}</h5>
+                                        <div className="upstream-group-title-wrapper">
+                                            <h5 className="upstream-group-name">
+                                                {group.name}
+                                                {group.isDefault && (
+                                                    <span className="badge badge-primary ml-2">
+                                                        {t('default_group')}
+                                                    </span>
+                                                )}
+                                            </h5>
+                                            {group.isDefault && (
+                                                <p className="upstream-group-default-hint">
+                                                    {t('default_group_hint')}
+                                                </p>
+                                            )}
+                                        </div>
                                         <div className="upstream-group-buttons">
+                                            {!group.isDefault && (
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-sm btn-outline-secondary"
+                                                    onClick={() => handleSetDefault(group.id)}
+                                                    disabled={disabled || isAdding || editingId !== null}>
+                                                    {t('set_as_default')}
+                                                </button>
+                                            )}
                                             <button
                                                 type="button"
                                                 className="btn btn-sm btn-outline-primary"
@@ -155,7 +194,7 @@ const UpstreamGroups: React.FC<UpstreamGroupsProps> = ({ groups, onChange, disab
                                                 type="button"
                                                 className="btn btn-sm btn-outline-danger"
                                                 onClick={() => handleDelete(group.id)}
-                                                disabled={disabled || isAdding || editingId !== null}>
+                                                disabled={disabled || isAdding || editingId !== null || group.isDefault}>
                                                 {t('delete')}
                                             </button>
                                         </div>
@@ -264,6 +303,12 @@ const UpstreamGroups: React.FC<UpstreamGroupsProps> = ({ groups, onChange, disab
                     background-color: #f8f9fa;
                 }
 
+                .upstream-group-item--default {
+                    background-color: #fff3cd;
+                    border-color: #ffc107;
+                    border-width: 2px;
+                }
+
                 .upstream-group-item--new {
                     background-color: #e7f3ff;
                     border-color: #0d6efd;
@@ -276,11 +321,44 @@ const UpstreamGroups: React.FC<UpstreamGroupsProps> = ({ groups, onChange, disab
                     margin-bottom: 0.75rem;
                 }
 
+                .upstream-group-title-wrapper {
+                    flex: 1;
+                }
+
                 .upstream-group-name {
                     font-size: 1rem;
                     font-weight: 600;
                     margin: 0;
                     color: #495057;
+                    display: flex;
+                    align-items: center;
+                }
+
+                .upstream-group-default-hint {
+                    font-size: 0.875rem;
+                    color: #856404;
+                    margin: 0.25rem 0 0 0;
+                }
+
+                .badge {
+                    display: inline-block;
+                    padding: 0.25em 0.6em;
+                    font-size: 0.75rem;
+                    font-weight: 600;
+                    line-height: 1;
+                    text-align: center;
+                    white-space: nowrap;
+                    vertical-align: baseline;
+                    border-radius: 0.25rem;
+                }
+
+                .badge-primary {
+                    color: #fff;
+                    background-color: #0d6efd;
+                }
+
+                .ml-2 {
+                    margin-left: 0.5rem;
                 }
 
                 .upstream-group-buttons {
