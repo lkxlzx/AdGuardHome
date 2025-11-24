@@ -42,10 +42,13 @@ const UpstreamGroups: React.FC<UpstreamGroupsProps> = ({ groups, onChange, disab
         }
 
         if (isAdding) {
+            // 如果是第一个分组，自动设为默认组
+            const isFirstGroup = groups.length === 0;
             const newGroup: UpstreamGroup = {
                 id: `group_${Date.now()}`,
                 name: data.name.trim(),
                 upstreams: data.upstreams.trim(),
+                isDefault: isFirstGroup,
             };
             onChange([...groups, newGroup]);
             setIsAdding(false);
@@ -75,7 +78,15 @@ const UpstreamGroups: React.FC<UpstreamGroupsProps> = ({ groups, onChange, disab
             return;
         }
         if (window.confirm(t('upstream_group_confirm_delete'))) {
-            onChange(groups.filter((g) => g.id !== id));
+            const remainingGroups = groups.filter((g) => g.id !== id);
+            
+            // 如果删除后没有默认组，将第一个设为默认
+            const hasDefault = remainingGroups.some((g) => g.isDefault);
+            if (!hasDefault && remainingGroups.length > 0) {
+                remainingGroups[0].isDefault = true;
+            }
+            
+            onChange(remainingGroups);
         }
     };
 
@@ -93,6 +104,12 @@ const UpstreamGroups: React.FC<UpstreamGroupsProps> = ({ groups, onChange, disab
                 <h4 className="upstream-groups__title">{t('upstream_groups_title')}</h4>
                 <p className="form__desc">{t('upstream_groups_desc')}</p>
             </div>
+
+            {groups.length === 0 && !isAdding && (
+                <div className="upstream-groups__empty">
+                    <p className="text-muted">{t('upstream_groups_empty')}</p>
+                </div>
+            )}
 
             {groups.length > 0 && (
                 <div className="upstream-groups__list">
@@ -287,6 +304,20 @@ const UpstreamGroups: React.FC<UpstreamGroupsProps> = ({ groups, onChange, disab
                     font-size: 1.1rem;
                     font-weight: 600;
                     margin-bottom: 0.5rem;
+                }
+
+                .upstream-groups__empty {
+                    padding: 2rem;
+                    text-align: center;
+                    background-color: #f8f9fa;
+                    border: 1px dashed #dee2e6;
+                    border-radius: 4px;
+                    margin-bottom: 1rem;
+                }
+
+                .upstream-groups__empty .text-muted {
+                    margin: 0;
+                    color: #6c757d;
                 }
 
                 .upstream-groups__list {

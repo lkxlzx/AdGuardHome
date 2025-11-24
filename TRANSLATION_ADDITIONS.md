@@ -7,6 +7,7 @@
 ```json
     "upstream_groups_title": "上游 DNS 服务器分组",
     "upstream_groups_desc": "创建上游 DNS 服务器分组，可在 DNS 分流规则中使用这些分组。未命中分流规则的查询将使用默认组",
+    "upstream_groups_empty": "暂无分组，点击下方按钮添加第一个分组（将自动设为默认组）",
     "upstream_group_name": "分组名称",
     "upstream_group_name_placeholder": "例如：国内 DNS、国外 DNS",
     "upstream_group_servers": "DNS 服务器列表",
@@ -48,6 +49,7 @@
 ```json
     "upstream_groups_title": "Upstream DNS Server Groups",
     "upstream_groups_desc": "Create upstream DNS server groups that can be used in DNS routing rules. Queries that don't match routing rules will use the default group",
+    "upstream_groups_empty": "No groups yet. Click the button below to add your first group (it will be set as default automatically)",
     "upstream_group_name": "Group Name",
     "upstream_group_name_placeholder": "e.g., Domestic DNS, Foreign DNS",
     "upstream_group_servers": "DNS Server List",

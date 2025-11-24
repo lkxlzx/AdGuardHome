@@ -13,6 +13,7 @@ interface UpstreamGroup {
     id: string;
     name: string;
     upstreams: string;
+    isDefault?: boolean;
 }
 
 const Upstream = () => {
