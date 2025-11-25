@@ -412,11 +412,26 @@ func (d *DNSFilter) handleFilteringRefresh(w http.ResponseWriter, r *http.Reques
 		Updated int `json:"updated"`
 	}{}
 	
-	// If dns_routing is true, only refresh DNS routing filters
-	// Otherwise, refresh blocklist and/or whitelist filters
+	// Refresh filters based on the request type
+	// DNS routing filters are independent from blocklist/whitelist
 	if req.DnsRouting {
-		resp.Updated, _, ok = d.tryRefreshFilters(false, false, true)
+		// Only refresh DNS routing filters
+		if ok = d.refreshLock.TryLock(); !ok {
+			aghhttp.ErrorAndLog(
+				ctx,
+				l,
+				r,
+				w,
+				http.StatusInternalServerError,
+				"filters update procedure is already running",
+			)
+			return
+		}
+		resp.Updated, _ = d.refreshDnsRoutingFilters(true)
+		d.refreshLock.Unlock()
+		ok = true
 	} else {
+		// Only refresh blocklist and/or whitelist filters
 		resp.Updated, _, ok = d.tryRefreshFilters(!req.White, req.White, true)
 	}
 	

@@ -1201,15 +1201,18 @@ func (d *DNSFilter) periodicallyRefreshFilters(ivl time.Duration) (nextIvl time.
 	const maxInterval = time.Hour
 	const minInterval = time.Minute
 
-	// Always check DNS routing filters with custom intervals
-	// even if global interval is 0
-	_, _, _ = d.tryRefreshFilters(false, false, false)
+	// Always check DNS routing filters independently (they have custom intervals)
+	if d.refreshLock.TryLock() {
+		d.refreshDnsRoutingFilters(false)
+		d.refreshLock.Unlock()
+	}
 
 	if d.conf.FiltersUpdateIntervalHours == 0 {
 		// Still check every minute for DNS routing filters with custom intervals
 		return minInterval
 	}
 
+	// Check blocklist and whitelist filters based on global interval
 	isNetErr, ok := false, false
 	_, isNetErr, ok = d.tryRefreshFilters(true, true, false)
 

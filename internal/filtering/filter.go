@@ -496,6 +496,14 @@ func (d *DNSFilter) syncUpdatedFilters(
 // refreshFiltersIntl checks filters and updates them if necessary.  If force is
 // true, it ignores the filter.LastUpdated field value.
 //
+// Parameters:
+//   - block: refresh blocklist filters
+//   - allow: refresh whitelist filters
+//   - force: ignore LastUpdated time and force refresh
+//
+// Note: DNS routing filters are handled separately and are NOT included
+// in this function. Use refreshDnsRoutingFilters() for DNS routing filters.
+//
 // Algorithm:
 //
 //  1. Get the list of filters to be updated.  For each filter, run the download
@@ -515,7 +523,7 @@ func (d *DNSFilter) refreshFiltersIntl(block, allow, force bool) (int, bool) {
 	ctx := context.TODO()
 
 	updNum := 0
-	d.logger.DebugContext(ctx, "starting update")
+	d.logger.DebugContext(ctx, "starting update", "block", block, "allow", allow)
 	defer func() {
 		d.logger.DebugContext(ctx, "finished update", "updated", updNum)
 	}()
@@ -540,25 +548,49 @@ func (d *DNSFilter) refreshFiltersIntl(block, allow, force bool) (int, bool) {
 		isNetErr = isNetErr || isNetErrAl
 	}
 	
-	// Always refresh DNS routing filters
+	if isNetErr {
+		return 0, true
+	}
+
+	if updNum == 0 {
+		return 0, false
+	}
+
+	d.EnableFilters(false)
+
+	for i := range lists {
+		if toUpd[i] {
+			removeOldFilterFile(ctx, d.logger, lists[i].Path(d.conf.DataDir))
+		}
+	}
+
+	return updNum, false
+}
+
+// refreshDnsRoutingFilters checks DNS routing filters and updates them if necessary.
+// This is separate from refreshFiltersIntl to keep DNS routing filters independent
+// from blocklist and whitelist filters.
+func (d *DNSFilter) refreshDnsRoutingFilters(force bool) (int, bool) {
+	ctx := context.TODO()
+
+	d.logger.DebugContext(ctx, "starting dns routing filters update")
+	defer func(start time.Time) {
+		d.logger.DebugContext(ctx, "finished dns routing filters update", "duration", time.Since(start))
+	}(time.Now())
+
 	// Mark DNS routing filters before refreshing
 	d.conf.filtersMu.Lock()
 	for i := range d.conf.DnsRoutingFilters {
 		d.conf.DnsRoutingFilters[i].MarkAsDnsRouting()
 	}
 	d.conf.filtersMu.Unlock()
-	
-	updNumDr, listsDr, toUpdDr, isNetErrDr := d.refreshFiltersArray(
+
+	updNum, lists, toUpd, isNetErr := d.refreshFiltersArray(
 		ctx,
 		&d.conf.DnsRoutingFilters,
 		force,
 	)
 
-	updNum += updNumDr
-	lists = append(lists, listsDr...)
-	toUpd = append(toUpd, toUpdDr...)
-	isNetErr = isNetErr || isNetErrDr
-	
 	if isNetErr {
 		return 0, true
 	}
