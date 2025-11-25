@@ -30,14 +30,15 @@ const filterDir = "filters"
 //
 // TODO(e.burkov):  Investigate if the field ordering is important.
 type FilterYAML struct {
-	Enabled     bool
-	URL         string    // URL or a file path
-	Name        string    `yaml:"name"`
-	RulesCount  int       `yaml:"-"`
-	LastUpdated time.Time `yaml:"-"`
-	checksum    uint32    // checksum of the file data
-	white       bool
-	dnsRouting  bool      // Internal flag: true if this filter is in DnsRoutingFilters list
+	Enabled        bool
+	URL            string    // URL or a file path
+	Name           string    `yaml:"name"`
+	RulesCount     int       `yaml:"-"`
+	LastUpdated    time.Time `yaml:"-"`
+	UpdateInterval int       `yaml:"update_interval"` // Auto-update interval in minutes, 0 = disabled
+	checksum       uint32    // checksum of the file data
+	white          bool
+	dnsRouting     bool      // Internal flag: true if this filter is in DnsRoutingFilters list
 
 	Filter `yaml:",inline"`
 }
@@ -154,6 +155,12 @@ func (d *DNSFilter) filterSetProperties(
 	if newList.UpstreamGroup != "" && flt.UpstreamGroup != newList.UpstreamGroup {
 		flt.UpstreamGroup = newList.UpstreamGroup
 		shouldRestart = true
+	}
+
+	// Update update interval
+	if flt.UpdateInterval != newList.UpdateInterval {
+		flt.UpdateInterval = newList.UpdateInterval
+		// No need to restart for interval change
 	}
 
 	if flt.URL != newList.URL {
@@ -364,7 +371,20 @@ func (d *DNSFilter) listsToUpdate(filters *[]FilterYAML, force bool) (toUpd []Fi
 		}
 
 		if !force {
-			exp := flt.LastUpdated.Add(time.Duration(d.conf.FiltersUpdateIntervalHours) * time.Hour)
+			// Check if filter has custom update interval (for DNS routing rules)
+			var updateInterval time.Duration
+			if flt.UpdateInterval > 0 {
+				// Use custom interval in minutes
+				updateInterval = time.Duration(flt.UpdateInterval) * time.Minute
+			} else if flt.UpdateInterval == 0 && flt.dnsRouting {
+				// DNS routing rule with interval 0 means no auto-update
+				continue
+			} else {
+				// Use global interval in hours for regular filters
+				updateInterval = time.Duration(d.conf.FiltersUpdateIntervalHours) * time.Hour
+			}
+
+			exp := flt.LastUpdated.Add(updateInterval)
 			if now.Before(exp) {
 				continue
 			}
@@ -374,9 +394,11 @@ func (d *DNSFilter) listsToUpdate(filters *[]FilterYAML, force bool) (toUpd []Fi
 			Filter: Filter{
 				ID: flt.ID,
 			},
-			URL:      flt.URL,
-			Name:     flt.Name,
-			checksum: flt.checksum,
+			URL:            flt.URL,
+			Name:           flt.Name,
+			UpdateInterval: flt.UpdateInterval,
+			checksum:       flt.checksum,
+			dnsRouting:     flt.dnsRouting,
 		})
 	}
 

@@ -15,6 +15,7 @@ type FormValues = {
     name: string;
     url: string;
     upstreamGroup?: string;
+    updateInterval?: number;
 };
 
 const defaultValues: FormValues = {
@@ -22,6 +23,7 @@ const defaultValues: FormValues = {
     name: '',
     url: '',
     upstreamGroup: '',
+    updateInterval: 0,
 };
 
 type Props = {
@@ -138,44 +140,88 @@ export const Form = ({
                             </div>
 
                             {isRoutingRule && (
-                                <div className="form__group">
-                                    <label className="form__label" htmlFor="upstreamGroup">
-                                        {t('routing_rule_group')}
-                                    </label>
-                                    <Controller
-                                        name="upstreamGroup"
-                                        control={control}
-                                        rules={{ required: t('form_error_required') }}
-                                        render={({ field, fieldState }) => (
-                                            <>
-                                                <select
-                                                    {...field}
-                                                    id="upstreamGroup"
-                                                    className={`form-control ${fieldState.error ? 'is-invalid' : ''}`}
-                                                    disabled={processingAddFilter || processingConfigFilter}>
-                                                    <option value="">
-                                                        {t('custom_rule_select_group')}
-                                                    </option>
-                                                    {upstreamGroups
-                                                        .filter((group: any) => group.enabled)
-                                                        .map((group: any) => (
-                                                            <option key={group.id} value={group.id}>
-                                                                {group.name}
-                                                            </option>
-                                                        ))}
-                                                </select>
-                                                {fieldState.error && (
-                                                    <div className="invalid-feedback">
-                                                        {fieldState.error.message}
-                                                    </div>
-                                                )}
-                                            </>
-                                        )}
-                                    />
-                                    <div className="form__description">
-                                        {t('routing_rule_group_hint')}
+                                <>
+                                    <div className="form__group">
+                                        <label className="form__label" htmlFor="upstreamGroup">
+                                            {t('routing_rule_group')}
+                                        </label>
+                                        <Controller
+                                            name="upstreamGroup"
+                                            control={control}
+                                            rules={{ required: t('form_error_required') }}
+                                            render={({ field, fieldState }) => (
+                                                <>
+                                                    <select
+                                                        {...field}
+                                                        id="upstreamGroup"
+                                                        className={`form-control ${fieldState.error ? 'is-invalid' : ''}`}
+                                                        disabled={processingAddFilter || processingConfigFilter}>
+                                                        <option value="">
+                                                            {t('custom_rule_select_group')}
+                                                        </option>
+                                                        {upstreamGroups
+                                                            .filter((group: any) => group.enabled)
+                                                            .map((group: any) => (
+                                                                <option key={group.id} value={group.id}>
+                                                                    {group.name}
+                                                                </option>
+                                                            ))}
+                                                    </select>
+                                                    {fieldState.error && (
+                                                        <div className="invalid-feedback">
+                                                            {fieldState.error.message}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
+                                        />
+                                        <div className="form__description">
+                                            {t('routing_rule_group_hint')}
+                                        </div>
                                     </div>
-                                </div>
+
+                                    <div className="form__group">
+                                        <label className="form__label" htmlFor="updateInterval">
+                                            {t('routing_rule_update_interval')}
+                                        </label>
+                                        <Controller
+                                            name="updateInterval"
+                                            control={control}
+                                            rules={{
+                                                validate: (value) => {
+                                                    const num = Number(value);
+                                                    if (isNaN(num) || num < 0) {
+                                                        return t('form_error_positive_number');
+                                                    }
+                                                    return true;
+                                                }
+                                            }}
+                                            render={({ field, fieldState }) => (
+                                                <>
+                                                    <input
+                                                        {...field}
+                                                        type="number"
+                                                        id="updateInterval"
+                                                        className={`form-control ${fieldState.error ? 'is-invalid' : ''}`}
+                                                        placeholder="0"
+                                                        min="0"
+                                                        step="1"
+                                                        disabled={processingAddFilter || processingConfigFilter}
+                                                        onChange={(e) => field.onChange(Number(e.target.value))}
+                                                    />
+                                                    {fieldState.error && (
+                                                        <div className="invalid-feedback">
+                                                            {fieldState.error.message}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
+                                        />
+                                        <div className="form__description">
+                                            {t('routing_rule_update_interval_hint')}
+                                        </div>
+                                    </div>
+                                </>
                             )}
                         </>
                     )}

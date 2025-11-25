@@ -57,11 +57,12 @@ func (d *DNSFilter) validateFilterURL(urlStr string) (err error) {
 }
 
 type filterAddJSON struct {
-	Name          string `json:"name"`
-	URL           string `json:"url"`
-	Whitelist     bool   `json:"whitelist"`
-	DnsRouting    bool   `json:"dns_routing"`
-	UpstreamGroup string `json:"upstream_group"`
+	Name           string `json:"name"`
+	URL            string `json:"url"`
+	Whitelist      bool   `json:"whitelist"`
+	DnsRouting     bool   `json:"dns_routing"`
+	UpstreamGroup  string `json:"upstream_group"`
+	UpdateInterval int    `json:"update_interval"` // Auto-update interval in minutes, 0 = disabled
 }
 
 func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request) {
@@ -110,11 +111,12 @@ func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request
 
 	// Set necessary properties
 	filt := FilterYAML{
-		Enabled:    true,
-		URL:        fj.URL,
-		Name:       fj.Name,
-		white:      fj.Whitelist,
-		dnsRouting: fj.DnsRouting,
+		Enabled:        true,
+		URL:            fj.URL,
+		Name:           fj.Name,
+		UpdateInterval: fj.UpdateInterval,
+		white:          fj.Whitelist,
+		dnsRouting:     fj.DnsRouting,
 		Filter: Filter{
 			ID:            d.idGen.next(),
 			UpstreamGroup: fj.UpstreamGroup,
@@ -292,10 +294,11 @@ func (d *DNSFilter) handleFilteringRemoveURL(w http.ResponseWriter, r *http.Requ
 }
 
 type filterURLReqData struct {
-	Name          string `json:"name"`
-	URL           string `json:"url"`
-	Enabled       bool   `json:"enabled"`
-	UpstreamGroup string `json:"upstream_group"`
+	Name           string `json:"name"`
+	URL            string `json:"url"`
+	Enabled        bool   `json:"enabled"`
+	UpstreamGroup  string `json:"upstream_group"`
+	UpdateInterval int    `json:"update_interval"` // Auto-update interval in minutes, 0 = disabled
 }
 
 type filterURLReq struct {
@@ -339,9 +342,10 @@ func (d *DNSFilter) handleFilteringSetURL(w http.ResponseWriter, r *http.Request
 	}
 
 	filt := FilterYAML{
-		Enabled: fj.Data.Enabled,
-		Name:    fj.Data.Name,
-		URL:     fj.Data.URL,
+		Enabled:        fj.Data.Enabled,
+		Name:           fj.Data.Name,
+		URL:            fj.Data.URL,
+		UpdateInterval: fj.Data.UpdateInterval,
 		Filter: Filter{
 			UpstreamGroup: fj.Data.UpstreamGroup,
 		},
@@ -433,10 +437,11 @@ func (d *DNSFilter) handleFilteringRefresh(w http.ResponseWriter, r *http.Reques
 }
 
 type filterJSON struct {
-	URL           string `json:"url"`
-	Name          string `json:"name"`
-	LastUpdated   string `json:"last_updated,omitempty"`
-	UpstreamGroup string `json:"upstream_group,omitempty"`
+	URL            string `json:"url"`
+	Name           string `json:"name"`
+	LastUpdated    string `json:"last_updated,omitempty"`
+	UpstreamGroup  string `json:"upstream_group,omitempty"`
+	UpdateInterval int    `json:"update_interval,omitempty"` // Auto-update interval in minutes
 
 	ID rulelist.APIID `json:"id"`
 
@@ -456,11 +461,12 @@ type filteringConfig struct {
 func filterToJSON(f FilterYAML) filterJSON {
 	fj := filterJSON{
 		// #nosec G115 -- The overflow is required for backwards compatibility.
-		ID:            rulelist.APIID(f.ID),
-		Enabled:       f.Enabled,
-		URL:           f.URL,
-		Name:          f.Name,
-		UpstreamGroup: f.UpstreamGroup,
+		ID:             rulelist.APIID(f.ID),
+		Enabled:        f.Enabled,
+		URL:            f.URL,
+		Name:           f.Name,
+		UpstreamGroup:  f.UpstreamGroup,
+		UpdateInterval: f.UpdateInterval,
 		// #nosec G115 -- The number of rules must not be negative.
 		RulesCount: uint64(f.RulesCount),
 	}
