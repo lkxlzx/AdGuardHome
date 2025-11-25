@@ -22,6 +22,20 @@ import (
 	"github.com/miekg/dns"
 )
 
+// Priority validation constants
+const (
+	minPriority = 0   // Minimum priority value
+	maxPriority = 100 // Maximum priority value
+)
+
+// validatePriority validates the priority value for DNS routing rules.
+func validatePriority(priority int) error {
+	if priority < minPriority || priority > maxPriority {
+		return fmt.Errorf("priority must be between %d and %d, got %d", minPriority, maxPriority, priority)
+	}
+	return nil
+}
+
 // validateFilterURL validates the filter list URL or file name.
 func (d *DNSFilter) validateFilterURL(urlStr string) (err error) {
 	defer func() { err = errors.Annotate(err, "checking filter: %w") }()
@@ -60,7 +74,7 @@ type filterAddJSON struct {
 	Name           string `json:"name"`
 	URL            string `json:"url"`
 	Whitelist      bool   `json:"whitelist"`
-	DnsRouting     bool   `json:"dns_routing"`
+	DNSRouting     bool   `json:"dns_routing"`
 	UpstreamGroup  string `json:"upstream_group"`
 	UpdateInterval int    `json:"update_interval"` // Auto-update interval in minutes, 0 = disabled
 	Priority       int    `json:"priority"`        // Priority for DNS routing rules, lower number = higher priority
@@ -93,8 +107,18 @@ func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Validate priority for DNS routing rules
+	if fj.DNSRouting {
+		err = validatePriority(fj.Priority)
+		if err != nil {
+			aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "invalid priority: %s", err)
+
+			return
+		}
+	}
+
 	// Check for duplicates in the same filter type
-	if d.filterExistsInType(fj.URL, fj.Whitelist, fj.DnsRouting) {
+	if d.filterExistsInType(fj.URL, fj.Whitelist, fj.DNSRouting) {
 		err = errFilterExists
 		aghhttp.ErrorAndLog(
 			ctx,
@@ -118,7 +142,7 @@ func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request
 		UpdateInterval: fj.UpdateInterval,
 		Priority:       fj.Priority,
 		white:          fj.Whitelist,
-		dnsRouting:     fj.DnsRouting,
+		dnsRouting:     fj.DNSRouting,
 		Filter: Filter{
 			ID:            d.idGen.next(),
 			UpstreamGroup: fj.UpstreamGroup,
@@ -159,14 +183,14 @@ func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request
 	// URL is assumed valid so append it to filters, update config, write new
 	// file and reload it to engines.
 	// Determine which list to add to based on dns_routing flag
-	if fj.DnsRouting {
+	if fj.DNSRouting {
 		// Add to DNS routing filters
-		err = d.filterAddDnsRouting(filt)
+		err = d.filterAddDNSRouting(filt)
 	} else {
 		// Add to regular filters or whitelist
 		err = d.filterAdd(filt)
 	}
-	
+
 	if err != nil {
 		aghhttp.ErrorAndLog(
 			ctx,
@@ -231,7 +255,7 @@ func (d *DNSFilter) handleFilteringRemoveURL(w http.ResponseWriter, r *http.Requ
 
 		var filters *[]FilterYAML
 		if req.DnsRouting {
-			filters = &d.conf.DnsRoutingFilters
+			filters = &d.conf.DNSRoutingFilters
 		} else if req.Whitelist {
 			filters = &d.conf.WhitelistFilters
 		} else {
@@ -344,6 +368,16 @@ func (d *DNSFilter) handleFilteringSetURL(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Validate priority for DNS routing rules
+	if fj.DnsRouting {
+		err = validatePriority(fj.Data.Priority)
+		if err != nil {
+			aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "invalid priority: %s", err)
+
+			return
+		}
+	}
+
 	filt := FilterYAML{
 		Enabled:        fj.Data.Enabled,
 		Name:           fj.Data.Name,
@@ -415,7 +449,7 @@ func (d *DNSFilter) handleFilteringRefresh(w http.ResponseWriter, r *http.Reques
 	resp := struct {
 		Updated int `json:"updated"`
 	}{}
-	
+
 	// Refresh filters based on the request type
 	// DNS routing filters are independent from blocklist/whitelist
 	if req.DnsRouting {
@@ -438,7 +472,7 @@ func (d *DNSFilter) handleFilteringRefresh(w http.ResponseWriter, r *http.Reques
 		// Only refresh blocklist and/or whitelist filters
 		resp.Updated, _, ok = d.tryRefreshFilters(!req.White, req.White, true)
 	}
-	
+
 	if !ok {
 		aghhttp.ErrorAndLog(
 			ctx,
@@ -513,7 +547,7 @@ func (d *DNSFilter) handleFilteringStatus(w http.ResponseWriter, r *http.Request
 		fj := filterToJSON(f)
 		resp.WhitelistFilters = append(resp.WhitelistFilters, fj)
 	}
-	for _, f := range d.conf.DnsRoutingFilters {
+	for _, f := range d.conf.DNSRoutingFilters {
 		fj := filterToJSON(f)
 		resp.DnsRoutingFilters = append(resp.DnsRoutingFilters, fj)
 	}

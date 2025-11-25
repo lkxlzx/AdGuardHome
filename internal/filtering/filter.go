@@ -39,7 +39,7 @@ type FilterYAML struct {
 	Priority       int       `yaml:"priority"`        // Priority for DNS routing rules, lower number = higher priority
 	checksum       uint32    // checksum of the file data
 	white          bool
-	dnsRouting     bool      // Internal flag: true if this filter is in DnsRoutingFilters list
+	dnsRouting     bool // Internal flag: true if this filter is in DNSRoutingFilters list
 
 	Filter `yaml:",inline"`
 }
@@ -50,10 +50,10 @@ func (filter *FilterYAML) unload() {
 	filter.checksum = 0
 }
 
-// MarkAsDnsRouting marks this filter as a DNS routing filter.
+// MarkAsDNSRouting marks this filter as a DNS routing filter.
 // This is used when loading filters from config file, as the dnsRouting flag
 // is not saved to the config file.
-func (filter *FilterYAML) MarkAsDnsRouting() {
+func (filter *FilterYAML) MarkAsDNSRouting() {
 	filter.dnsRouting = true
 }
 
@@ -103,14 +103,14 @@ func (d *DNSFilter) filterSetProperties(
 	listURL string,
 	newList FilterYAML,
 	isAllowlist bool,
-	isDnsRouting bool,
+	isDNSRouting bool,
 ) (shouldRestart bool, err error) {
 	d.conf.filtersMu.Lock()
 	defer d.conf.filtersMu.Unlock()
 
 	var filters []FilterYAML
-	if isDnsRouting {
-		filters = d.conf.DnsRoutingFilters
+	if isDNSRouting {
+		filters = d.conf.DNSRoutingFilters
 	} else if isAllowlist {
 		filters = d.conf.WhitelistFilters
 	} else {
@@ -123,12 +123,12 @@ func (d *DNSFilter) filterSetProperties(
 	}
 
 	flt := &filters[i]
-	
+
 	// Ensure the dnsRouting flag is set correctly
-	if isDnsRouting {
+	if isDNSRouting {
 		flt.dnsRouting = true
 	}
-	
+
 	d.logger.DebugContext(
 		context.TODO(),
 		"updating filter",
@@ -205,17 +205,6 @@ func (d *DNSFilter) filterSetProperties(
 	return d.update(flt)
 }
 
-// filterExists returns true if a filter with the same url exists in d.  It's
-// safe for concurrent use.
-func (d *DNSFilter) filterExists(url string) (ok bool) {
-	d.conf.filtersMu.RLock()
-	defer d.conf.filtersMu.RUnlock()
-
-	r := d.filterExistsLocked(url)
-
-	return r
-}
-
 // filterExistsLocked returns true if d contains the filter with the same url.
 // d.filtersMu is expected to be locked.
 func (d *DNSFilter) filterExistsLocked(url string) (ok bool) {
@@ -231,7 +220,7 @@ func (d *DNSFilter) filterExistsLocked(url string) (ok bool) {
 		}
 	}
 
-	for _, f := range d.conf.DnsRoutingFilters {
+	for _, f := range d.conf.DNSRoutingFilters {
 		if f.URL == url {
 			return true
 		}
@@ -242,13 +231,13 @@ func (d *DNSFilter) filterExistsLocked(url string) (ok bool) {
 
 // filterExistsInType returns true if a filter with the same url exists in the specified filter type.
 // It's safe for concurrent use.
-func (d *DNSFilter) filterExistsInType(url string, isWhitelist bool, isDnsRouting bool) (ok bool) {
+func (d *DNSFilter) filterExistsInType(url string, isWhitelist bool, isDNSRouting bool) (ok bool) {
 	d.conf.filtersMu.RLock()
 	defer d.conf.filtersMu.RUnlock()
 
 	var filters []FilterYAML
-	if isDnsRouting {
-		filters = d.conf.DnsRoutingFilters
+	if isDNSRouting {
+		filters = d.conf.DNSRoutingFilters
 	} else if isWhitelist {
 		filters = d.conf.WhitelistFilters
 	} else {
@@ -287,23 +276,18 @@ func (d *DNSFilter) filterAdd(flt FilterYAML) (err error) {
 	return nil
 }
 
-// filterAddDnsRouting adds a DNS routing filter
-func (d *DNSFilter) filterAddDnsRouting(flt FilterYAML) (err error) {
-	// Defer annotating to unlock sooner.
-	defer func() { err = errors.Annotate(err, "adding dns routing filter: %w") }()
-
+// filterAddDNSRouting adds a filter to the DNS routing filters list.
+func (d *DNSFilter) filterAddDNSRouting(f FilterYAML) (err error) {
 	d.conf.filtersMu.Lock()
 	defer d.conf.filtersMu.Unlock()
 
-	// Check for duplicates.
-	if d.filterExistsLocked(flt.URL) {
+	if d.filterExistsLocked(f.URL) {
 		return errFilterExists
 	}
 
-	// Mark this filter as a DNS routing filter
-	flt.dnsRouting = true
-
-	d.conf.DnsRoutingFilters = append(d.conf.DnsRoutingFilters, flt)
+	f.ID = d.idGen.next()
+	f.dnsRouting = true
+	d.conf.DNSRoutingFilters = append(d.conf.DNSRoutingFilters, f)
 
 	return nil
 }
@@ -554,7 +538,7 @@ func (d *DNSFilter) refreshFiltersIntl(block, allow, force bool) (int, bool) {
 		toUpd = append(toUpd, toUpdAl...)
 		isNetErr = isNetErr || isNetErrAl
 	}
-	
+
 	if isNetErr {
 		return 0, true
 	}
@@ -587,14 +571,14 @@ func (d *DNSFilter) refreshDnsRoutingFilters(force bool) (int, bool) {
 
 	// Mark DNS routing filters before refreshing
 	d.conf.filtersMu.Lock()
-	for i := range d.conf.DnsRoutingFilters {
-		d.conf.DnsRoutingFilters[i].MarkAsDnsRouting()
+	for i := range d.conf.DNSRoutingFilters {
+		d.conf.DNSRoutingFilters[i].MarkAsDNSRouting()
 	}
 	d.conf.filtersMu.Unlock()
 
 	updNum, lists, toUpd, isNetErr := d.refreshFiltersArray(
 		ctx,
-		&d.conf.DnsRoutingFilters,
+		&d.conf.DNSRoutingFilters,
 		force,
 	)
 
@@ -683,12 +667,12 @@ func (d *DNSFilter) updateIntl(ctx context.Context, flt *FilterYAML) (ok bool, e
 	if isDomainRoutingRule && isClashRule {
 		// Process Clash rules: filter out IP rules and keep only domain rules
 		d.logger.DebugContext(ctx, "processing clash rule for domain routing", "id", flt.ID, "url", flt.URL)
-		
+
 		stats, err := ProcessClashRuleFile(r, tmpFile)
 		if err != nil {
 			return false, fmt.Errorf("processing clash rule: %w", err)
 		}
-		
+
 		d.logger.InfoContext(
 			ctx,
 			"clash rule processed",
@@ -697,7 +681,7 @@ func (d *DNSFilter) updateIntl(ctx context.Context, flt *FilterYAML) (ok bool, e
 			"valid_domains", stats.ValidDomains,
 			"filtered_ip_rules", stats.IPRules,
 		)
-		
+
 		// Create a parse result for Clash rules
 		res = &rulelist.ParseResult{
 			RulesCount: stats.ValidDomains,
@@ -843,9 +827,45 @@ func (d *DNSFilter) EnableFilters(async bool) {
 	d.enableFiltersLocked(context.TODO(), async)
 }
 
+// detectPriorityConflicts detects and logs DNS routing filters with the same priority.
+func (d *DNSFilter) detectPriorityConflicts(ctx context.Context, filters []FilterYAML) {
+	if len(filters) < 2 {
+		return
+	}
+
+	// Group filters by priority
+	priorityMap := make(map[int][]FilterYAML)
+	for _, filter := range filters {
+		priorityMap[filter.Priority] = append(priorityMap[filter.Priority], filter)
+	}
+
+	// Check for conflicts and log warnings
+	for priority, filtersWithSamePriority := range priorityMap {
+		if len(filtersWithSamePriority) > 1 {
+			// Build list of filter names for logging
+			names := make([]string, len(filtersWithSamePriority))
+			for i, f := range filtersWithSamePriority {
+				if f.Name != "" {
+					names[i] = f.Name
+				} else {
+					names[i] = f.URL
+				}
+			}
+
+			d.logger.WarnContext(
+				ctx,
+				"priority conflict detected: multiple DNS routing filters have the same priority",
+				"priority", priority,
+				"count", len(filtersWithSamePriority),
+				"filters", names,
+			)
+		}
+	}
+}
+
 // enableFiltersLocked enables filters under the conf.filtersMu lock.
 func (d *DNSFilter) enableFiltersLocked(ctx context.Context, async bool) {
-	filters := make([]Filter, 1, len(d.conf.Filters)+len(d.conf.WhitelistFilters)+len(d.conf.DnsRoutingFilters)+1)
+	filters := make([]Filter, 1, len(d.conf.Filters)+len(d.conf.WhitelistFilters)+len(d.conf.DNSRoutingFilters)+1)
 	filters[0] = Filter{
 		ID:   rulelist.IDCustom,
 		Data: []byte(strings.Join(d.conf.UserRules, "\n")),
@@ -874,30 +894,36 @@ func (d *DNSFilter) enableFiltersLocked(ctx context.Context, async bool) {
 		})
 	}
 
-	// Add DNS routing filters to allowFilters with upstream group info
+	// Prepare DNS routing filters separately (independent engine)
 	// Sort by priority first (lower number = higher priority)
-	sortedDnsRoutingFilters := make([]FilterYAML, 0, len(d.conf.DnsRoutingFilters))
-	for _, filter := range d.conf.DnsRoutingFilters {
+	sortedDnsRoutingFilters := make([]FilterYAML, 0, len(d.conf.DNSRoutingFilters))
+	for _, filter := range d.conf.DNSRoutingFilters {
+		// Check individual filter's Enabled field
+		// This allows users to enable/disable each DNS routing filter independently
 		if filter.Enabled {
 			sortedDnsRoutingFilters = append(sortedDnsRoutingFilters, filter)
 		}
 	}
-	
+
 	// Sort by priority (ascending order, so lower numbers come first)
 	slices.SortFunc(sortedDnsRoutingFilters, func(a, b FilterYAML) int {
 		return a.Priority - b.Priority
 	})
-	
-	// Add sorted filters to allowFilters
+
+	// Detect and log priority conflicts
+	d.detectPriorityConflicts(ctx, sortedDnsRoutingFilters)
+
+	// Create separate DNS routing filters list
+	dnsRoutingFilters := make([]Filter, 0, len(sortedDnsRoutingFilters))
 	for _, filter := range sortedDnsRoutingFilters {
-		allowFilters = append(allowFilters, Filter{
+		dnsRoutingFilters = append(dnsRoutingFilters, Filter{
 			ID:            filter.ID,
 			FilePath:      filter.Path(d.conf.DataDir),
 			UpstreamGroup: filter.UpstreamGroup,
 		})
 	}
 
-	err := d.setFilters(ctx, filters, allowFilters, async)
+	err := d.setFilters(ctx, filters, allowFilters, dnsRoutingFilters, async)
 	if err != nil {
 		d.logger.ErrorContext(ctx, "enabling filters", slogutil.KeyError, err)
 	}

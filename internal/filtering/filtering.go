@@ -147,8 +147,8 @@ type Config struct {
 	// WhitelistFilters are the allowing filter lists.
 	WhitelistFilters []FilterYAML `yaml:"-"`
 
-	// DnsRoutingFilters are the DNS routing filter lists with upstream groups.
-	DnsRoutingFilters []FilterYAML `yaml:"-"`
+	// DNSRoutingFilters is the list of filters for DNS routing.
+	DNSRoutingFilters []FilterYAML `yaml:"dns_routing_filters"`
 
 	// UserRules is the global list of custom rules.
 	UserRules []string `yaml:"-"`
@@ -232,8 +232,9 @@ type Stats struct {
 
 // Parameters to pass to filters-initializer goroutine
 type filtersInitializerParams struct {
-	allowFilters []Filter
-	blockFilters []Filter
+	allowFilters      []Filter
+	blockFilters      []Filter
+	dnsRoutingFilters []Filter
 }
 
 type hostChecker struct {
@@ -263,6 +264,12 @@ type DNSFilter struct {
 
 	rulesStorageAllow    *filterlist.RuleStorage
 	filteringEngineAllow *urlfilter.DNSEngine
+
+	// rulesStorageDNSRouting is for DNS routing filters storage.
+	rulesStorageDNSRouting *filterlist.RuleStorage
+
+	// filteringEngineDnsRouting is for DNS routing filters (independent of FilteringEnabled).
+	filteringEngineDnsRouting *urlfilter.DNSEngine
 
 	safeSearch SafeSearch
 
@@ -350,7 +357,7 @@ func (d *DNSFilter) WriteDiskConfig(c *Config) {
 
 	c.Filters = slices.Clone(d.conf.Filters)
 	c.WhitelistFilters = slices.Clone(d.conf.WhitelistFilters)
-	c.DnsRoutingFilters = slices.Clone(d.conf.DnsRoutingFilters)
+	c.DNSRoutingFilters = slices.Clone(d.conf.DNSRoutingFilters)
 	c.UserRules = slices.Clone(d.conf.UserRules)
 }
 
@@ -363,12 +370,14 @@ func (d *DNSFilter) setFilters(
 	ctx context.Context,
 	blockFilters []Filter,
 	allowFilters []Filter,
+	dnsRoutingFilters []Filter,
 	async bool,
 ) (err error) {
 	if async {
 		params := filtersInitializerParams{
-			allowFilters: allowFilters,
-			blockFilters: blockFilters,
+			allowFilters:      allowFilters,
+			blockFilters:      blockFilters,
+			dnsRoutingFilters: dnsRoutingFilters,
 		}
 
 		d.filtersInitializerLock.Lock()
@@ -390,7 +399,7 @@ func (d *DNSFilter) setFilters(
 		return nil
 	}
 
-	return d.initFiltering(ctx, allowFilters, blockFilters)
+	return d.initFiltering(ctx, allowFilters, blockFilters, dnsRoutingFilters)
 }
 
 // Close - close the object
@@ -415,6 +424,12 @@ func (d *DNSFilter) reset(ctx context.Context) {
 	if d.rulesStorageAllow != nil {
 		if err := d.rulesStorageAllow.Close(); err != nil {
 			d.logger.ErrorContext(ctx, "closing allow rules storage", slogutil.KeyError, err)
+		}
+	}
+
+	if d.rulesStorageDNSRouting != nil {
+		if err := d.rulesStorageDNSRouting.Close(); err != nil {
+			d.logger.ErrorContext(ctx, "closing DNS routing rules storage", slogutil.KeyError, err)
 		}
 	}
 }
@@ -468,18 +483,12 @@ func (d *DNSFilter) BlockingMode() (mode BlockingMode, bIPv4, bIPv6 netip.Addr) 
 
 // SetBlockedResponseTTL sets TTL for blocked responses.
 func (d *DNSFilter) SetBlockedResponseTTL(ttl uint32) {
-	d.confMu.Lock()
-	defer d.confMu.Unlock()
-
-	d.conf.BlockedResponseTTL = ttl
+	atomic.StoreUint32(&d.conf.BlockedResponseTTL, ttl)
 }
 
 // BlockedResponseTTL returns TTL for blocked responses.
 func (d *DNSFilter) BlockedResponseTTL() (ttl uint32) {
-	d.confMu.Lock()
-	defer d.confMu.Unlock()
-
-	return d.conf.BlockedResponseTTL
+	return atomic.LoadUint32(&d.conf.BlockedResponseTTL)
 }
 
 // SafeBrowsingBlockHost returns a host for safe browsing blocked responses.
@@ -746,7 +755,7 @@ func ruleListFromFilter(f Filter) (rl filterlist.Interface, skip bool, err error
 }
 
 // Initialize urlfilter objects.
-func (d *DNSFilter) initFiltering(ctx context.Context, allowFilters, blockFilters []Filter) (err error) {
+func (d *DNSFilter) initFiltering(ctx context.Context, allowFilters, blockFilters, dnsRoutingFilters []Filter) (err error) {
 	rulesStorage, err := newRuleStorage(blockFilters)
 	if err != nil {
 		return err
@@ -760,6 +769,19 @@ func (d *DNSFilter) initFiltering(ctx context.Context, allowFilters, blockFilter
 	filteringEngine := urlfilter.NewDNSEngine(rulesStorage)
 	filteringEngineAllow := urlfilter.NewDNSEngine(rulesStorageAllow)
 
+	// Initialize DNS routing engine (independent of FilteringEnabled)
+	var dnsRoutingStorage *filterlist.RuleStorage
+	var dnsRoutingEngine *urlfilter.DNSEngine
+	if len(dnsRoutingFilters) > 0 {
+		dnsRoutingStorage, err = newRuleStorage(dnsRoutingFilters)
+		if err != nil {
+			return fmt.Errorf("creating DNS routing rule storage: %w", err)
+		}
+
+		dnsRoutingEngine = urlfilter.NewDNSEngine(dnsRoutingStorage)
+		d.logger.DebugContext(ctx, "initialized DNS routing engine")
+	}
+
 	func() {
 		d.engineLock.Lock()
 		defer d.engineLock.Unlock()
@@ -769,6 +791,8 @@ func (d *DNSFilter) initFiltering(ctx context.Context, allowFilters, blockFilter
 		d.filteringEngine = filteringEngine
 		d.rulesStorageAllow = rulesStorageAllow
 		d.filteringEngineAllow = filteringEngineAllow
+		d.rulesStorageDNSRouting = dnsRoutingStorage
+		d.filteringEngineDnsRouting = dnsRoutingEngine
 	}()
 
 	// Make sure that the OS reclaims memory as soon as possible.
@@ -826,16 +850,16 @@ func (d *DNSFilter) matchHostProcessAllowList(
 	if len(matchedRules) > 0 {
 		upstreamGroup = d.getUpstreamGroupByPriority(ctx, matchedRules)
 	}
-	
+
 	// Use different reason for DNS routing rules
 	reason := NotFilteredAllowList
 	if upstreamGroup != "" {
 		reason = NotFilteredDNSRouting
 	}
-	
+
 	res = makeResult(matchedRules, reason)
 	res.UpstreamGroup = upstreamGroup
-	
+
 	return res, nil
 }
 
@@ -905,10 +929,6 @@ func (d *DNSFilter) matchHost(
 	rrtype uint16,
 	setts *Settings,
 ) (res Result, err error) {
-	if !setts.FilteringEnabled {
-		return Result{}, nil
-	}
-
 	ctx := context.TODO()
 
 	ufReq := &urlfilter.DNSRequest{
@@ -919,25 +939,68 @@ func (d *DNSFilter) matchHost(
 		DNSType:          rrtype,
 	}
 
-	d.engineLock.RLock()
-	// Keep in mind that this lock must be held no just when calling Match() but
-	// also while using the rules returned by it.
-	//
-	// TODO(e.burkov):  Inspect if the above is true.
-	defer d.engineLock.RUnlock()
+	// Optimization: Only hold lock when copying engine references
+	// This reduces lock contention significantly
+	var (
+		engineDnsRouting *urlfilter.DNSEngine
+		engineAllow      *urlfilter.DNSEngine
+		engineBlock      *urlfilter.DNSEngine
+	)
 
-	if setts.ProtectionEnabled && d.filteringEngineAllow != nil {
-		dnsres, ok := d.filteringEngineAllow.MatchRequest(ufReq)
+	func() {
+		d.engineLock.RLock()
+		defer d.engineLock.RUnlock()
+		engineDnsRouting = d.filteringEngineDnsRouting
+		engineAllow = d.filteringEngineAllow
+		engineBlock = d.filteringEngine
+	}()
+
+	// Check DNS routing engine first (always active, independent of FilteringEnabled and ProtectionEnabled)
+	if engineDnsRouting != nil {
+		dnsres, ok := engineDnsRouting.MatchRequest(ufReq)
 		if ok {
-			return d.matchHostProcessAllowList(ctx, host, dnsres)
+			result, err := d.matchHostProcessAllowList(ctx, host, dnsres)
+			if err != nil {
+				return Result{}, err
+			}
+
+			// Debug logging
+			d.logger.DebugContext(ctx, "DNS routing matched",
+				"host", host,
+				"upstream_group", result.UpstreamGroup)
+
+			// DNS routing rules always return (independent of protection settings)
+			if result.UpstreamGroup != "" {
+				d.logger.DebugContext(ctx, "returning DNS routing rule", "upstream_group", result.UpstreamGroup)
+				return result, nil
+			}
 		}
 	}
 
-	if d.filteringEngine == nil {
+	// If FilteringEnabled is false, skip all other filtering (but DNS routing already checked above)
+	if !setts.FilteringEnabled {
 		return Result{}, nil
 	}
 
-	dnsres, matchedEngine := d.filteringEngine.MatchRequest(ufReq)
+	// Check allow list (only if protection is enabled)
+	if setts.ProtectionEnabled && engineAllow != nil {
+		dnsres, ok := engineAllow.MatchRequest(ufReq)
+		if ok {
+			result, err := d.matchHostProcessAllowList(ctx, host, dnsres)
+			if err != nil {
+				return Result{}, err
+			}
+
+			d.logger.DebugContext(ctx, "allow list matched", "host", host)
+			return result, nil
+		}
+	}
+
+	if engineBlock == nil {
+		return Result{}, nil
+	}
+
+	dnsres, matchedEngine := engineBlock.MatchRequest(ufReq)
 
 	// Check DNS rewrites first, because the API there is a bit awkward.
 	dnsRWRes := d.processDNSResultRewrites(dnsres, host)
@@ -987,7 +1050,7 @@ func (d *DNSFilter) getUpstreamGroupByFilterID(filterID rules.ListID) string {
 	defer d.conf.filtersMu.RUnlock()
 
 	// Search in DNS routing filters
-	for _, filter := range d.conf.DnsRoutingFilters {
+	for _, filter := range d.conf.DNSRoutingFilters {
 		if filter.ID == filterID {
 			return filter.UpstreamGroup
 		}
@@ -1005,8 +1068,8 @@ func (d *DNSFilter) getUpstreamGroupByPriority(ctx context.Context, matchedRules
 	// Build a map of filterID -> priority
 	filterPriority := make(map[rules.ListID]int)
 	filterUpstream := make(map[rules.ListID]string)
-	
-	for _, filter := range d.conf.DnsRoutingFilters {
+
+	for _, filter := range d.conf.DNSRoutingFilters {
 		filterPriority[filter.ID] = filter.Priority
 		filterUpstream[filter.ID] = filter.UpstreamGroup
 	}
@@ -1020,7 +1083,7 @@ func (d *DNSFilter) getUpstreamGroupByPriority(ctx context.Context, matchedRules
 	for _, rule := range matchedRules {
 		filterID := rule.GetFilterListID()
 		upstream, hasUpstream := filterUpstream[filterID]
-		
+
 		if !hasUpstream || upstream == "" {
 			continue
 		}
@@ -1076,7 +1139,7 @@ func (d *DNSFilter) GetFilterName(filterID int64) (name string) {
 	}
 
 	// Search in DNS routing filters
-	for _, filter := range d.conf.DnsRoutingFilters {
+	for _, filter := range d.conf.DNSRoutingFilters {
 		if filter.ID == id {
 			d.logger.DebugContext(context.TODO(), "found filter name in dns routing filters", "id", filterID, "name", filter.Name)
 			return filter.Name
@@ -1154,7 +1217,7 @@ func New(c *Config, blockFilters []Filter) (d *DNSFilter, err error) {
 	}
 
 	if blockFilters != nil {
-		err = d.initFiltering(ctx, nil, blockFilters)
+		err = d.initFiltering(ctx, nil, blockFilters, nil)
 		if err != nil {
 			d.Close()
 
@@ -1171,12 +1234,12 @@ func New(c *Config, blockFilters []Filter) (d *DNSFilter, err error) {
 
 	d.loadFilters(ctx, d.conf.Filters)
 	d.loadFilters(ctx, d.conf.WhitelistFilters)
-	
+
 	// Mark DNS routing filters before loading
-	for i := range d.conf.DnsRoutingFilters {
-		d.conf.DnsRoutingFilters[i].MarkAsDnsRouting()
+	for i := range d.conf.DNSRoutingFilters {
+		d.conf.DNSRoutingFilters[i].MarkAsDNSRouting()
 	}
-	d.loadFilters(ctx, d.conf.DnsRoutingFilters)
+	d.loadFilters(ctx, d.conf.DNSRoutingFilters)
 
 	d.conf.Filters = deduplicateFilters(d.conf.Filters)
 	d.conf.WhitelistFilters = deduplicateFilters(d.conf.WhitelistFilters)
@@ -1225,7 +1288,7 @@ func (d *DNSFilter) updatesLoop(ctx context.Context) {
 	for {
 		select {
 		case params := <-d.filtersInitializerChan:
-			err := d.initFiltering(ctx, params.allowFilters, params.blockFilters)
+			err := d.initFiltering(ctx, params.allowFilters, params.blockFilters, params.dnsRoutingFilters)
 			if err != nil {
 				d.logger.ErrorContext(ctx, "initializing", slogutil.KeyError, err)
 

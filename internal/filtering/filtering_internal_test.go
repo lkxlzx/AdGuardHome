@@ -565,7 +565,7 @@ func TestWhitelist(t *testing.T) {
 	d, setts := newForTest(t, nil, filters)
 
 	ctx := testutil.ContextWithTimeout(t, testTimeout)
-	err := d.setFilters(ctx, filters, whiteFilters, false)
+	err := d.setFilters(ctx, filters, whiteFilters, nil, false)
 	require.NoError(t, err)
 
 	t.Cleanup(d.Close)

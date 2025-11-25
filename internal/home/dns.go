@@ -79,9 +79,9 @@ func initDNS(
 	// Copy filter lists from config to filtering config
 	config.Filtering.Filters = config.Filters
 	config.Filtering.WhitelistFilters = config.WhitelistFilters
-	config.Filtering.DnsRoutingFilters = config.DnsRoutingFilters
+	config.Filtering.DNSRoutingFilters = config.DNSRoutingFilters
 	config.Filtering.UserRules = config.UserRules
-	
+
 	globalContext.filters, err = filtering.New(config.Filtering, nil)
 	if err != nil {
 		// Don't wrap the error, since it's informative enough as is.

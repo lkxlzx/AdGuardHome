@@ -129,8 +129,8 @@ type jsonDNSConfig struct {
 	// UpstreamGroups is the list of upstream DNS server groups.
 	UpstreamGroups *[]UpstreamGroup `json:"upstream_groups"`
 
-	// DnsRoutingRules is the list of DNS routing rules.
-	DnsRoutingRules *[]DnsRoutingRule `json:"dns_routing_rules"`
+	// DNSRoutingRules is the list of DNS routing rules.
+	DNSRoutingRules *[]DNSRoutingRule `json:"dns_routing_rules"`
 
 	// CustomDomainRules is the list of user-defined custom domain routing rules.
 	CustomDomainRules *[]CustomDomainRule `json:"custom_domain_rules"`
@@ -206,8 +206,8 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 	copy(upstreamGroups, s.conf.UpstreamGroups)
 
 	// Clone DNS routing rules
-	dnsRoutingRules := make([]DnsRoutingRule, len(s.conf.DnsRoutingRules))
-	copy(dnsRoutingRules, s.conf.DnsRoutingRules)
+	dnsRoutingRules := make([]DNSRoutingRule, len(s.conf.DNSRoutingRules))
+	copy(dnsRoutingRules, s.conf.DNSRoutingRules)
 
 	// Clone custom domain rules
 	customDomainRules := make([]CustomDomainRule, len(s.conf.CustomDomainRules))
@@ -245,7 +245,7 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 		DefaultLocalPTRUpstreams: defPTRUps,
 		DisabledUntil:            protectionDisabledUntil,
 		UpstreamGroups:           &upstreamGroups,
-		DnsRoutingRules:          &dnsRoutingRules,
+		DNSRoutingRules:          &dnsRoutingRules,
 		CustomDomainRules:        &customDomainRules,
 	}
 }
@@ -693,7 +693,7 @@ func (s *Server) setConfigRestartable(dc *jsonDNSConfig) (shouldRestart bool) {
 		setIfNotNil(&s.conf.RatelimitSubnetLenIPv6, dc.RatelimitSubnetLenIPv6),
 		setIfNotNil(&s.conf.RatelimitWhitelist, dc.RatelimitWhitelist),
 		setIfNotNil(&s.conf.UpstreamGroups, dc.UpstreamGroups),
-		setIfNotNil(&s.conf.DnsRoutingRules, dc.DnsRoutingRules),
+		setIfNotNil(&s.conf.DNSRoutingRules, dc.DNSRoutingRules),
 		setIfNotNil(&s.conf.CustomDomainRules, dc.CustomDomainRules),
 	} {
 		shouldRestart = shouldRestart || hasSet
@@ -891,19 +891,19 @@ func (s *Server) registerHandlers() {
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_config", s.handleSetConfig)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/test_upstream_dns", s.handleTestUpstreamDNS)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/validate_clash_rule", s.handleValidateClashRule)
-	
+
 	// Custom domain rules (simple domain -> upstream mapping)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/custom_domain_rules/add", s.handleAddCustomDomainRule)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/custom_domain_rules/update", s.handleUpdateCustomDomainRule)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/custom_domain_rules/delete", s.handleDeleteCustomDomainRule)
-	
+
 	// DNS routing rules (URL-based filter lists with upstream groups)
-	s.conf.HTTPReg.Register(http.MethodGet, "/control/dns_routing/status", s.handleDnsRoutingStatus)
-	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_routing/add_url", s.handleDnsRoutingAddURL)
-	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_routing/remove_url", s.handleDnsRoutingRemoveURL)
-	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_routing/set_url", s.handleDnsRoutingSetURL)
-	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_routing/refresh", s.handleDnsRoutingRefresh)
-	
+	s.conf.HTTPReg.Register(http.MethodGet, "/control/dns_routing/status", s.handleDNSRoutingStatus)
+	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_routing/add_url", s.handleDNSRoutingAddURL)
+	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_routing/remove_url", s.handleDNSRoutingRemoveURL)
+	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_routing/set_url", s.handleDNSRoutingSetURL)
+	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_routing/refresh", s.handleDNSRoutingRefresh)
+
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/protection", s.handleSetProtection)
 
 	s.conf.HTTPReg.Register(http.MethodGet, "/control/access/list", s.handleAccessList)
@@ -995,8 +995,8 @@ func (s *Server) handleUpdateCustomDomainRule(w http.ResponseWriter, r *http.Req
 	l := s.logger
 
 	type updateRequest struct {
-		Index int               `json:"index"`
-		Rule  CustomDomainRule  `json:"rule"`
+		Index int              `json:"index"`
+		Rule  CustomDomainRule `json:"rule"`
 	}
 
 	req := &updateRequest{}

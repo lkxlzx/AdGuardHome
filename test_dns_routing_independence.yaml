@@ -1,0 +1,91 @@
+# DNS路由独立性测试配置
+# 这个配置文件用于测试DNS路由引擎是否真正独立于FilteringEnabled和ProtectionEnabled
+
+# 关键测试点：protection_enabled和filtering_enabled都设置为false
+# 但DNS路由过滤器仍然应该工作
+dns:
+  bind_hosts:
+    - 0.0.0.0
+  port: 53
+  
+  # ❌ 关闭保护功能
+  protection_enabled: false
+  
+  # ❌ 关闭过滤功能
+  filtering_enabled: false
+  
+  # 默认上游DNS
+  upstream_dns:
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
+  
+  # 定义上游组
+  upstream_groups:
+    china:
+      - https://dns.alidns.com/dns-query
+      - https://doh.pub/dns-query
+    
+    custom:
+      - https://dns.quad9.net/dns-query
+
+# 日志配置
+log:
+  file: ""
+  max_backups: 0
+  max_size: 100
+  max_age: 3
+  compress: false
+  local_time: false
+  verbose: true  # 启用详细日志以查看DNS路由匹配过程
+
+# 过滤器配置
+filters:
+  # ✅ DNS路由过滤器启用（即使全局过滤关闭）
+  dns_routing_filters:
+    - enabled: true
+      id: 1
+      name: "China Domains"
+      url: "file://test_china_domains.txt"
+      upstream_group: "china"
+      priority: 1
+    
+    - enabled: true
+      id: 2
+      name: "Custom Domains"
+      url: "file://test_custom_domains.txt"
+      upstream_group: "custom"
+      priority: 2
+  
+  # 普通过滤器（应该不工作，因为filtering_enabled为false）
+  filters:
+    - enabled: true
+      id: 100
+      name: "AdGuard DNS filter"
+      url: "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt"
+
+# 测试说明：
+# 1. 创建测试规则文件 test_china_domains.txt：
+#    ||baidu.com^
+#    ||qq.com^
+#    ||taobao.com^
+#
+# 2. 创建测试规则文件 test_custom_domains.txt：
+#    ||example.com^
+#    ||test.com^
+#
+# 3. 启动AdGuardHome：
+#    ./AdGuardHome_v3_latest.exe -c test_dns_routing_independence.yaml
+#
+# 4. 测试DNS查询：
+#    nslookup baidu.com 127.0.0.1
+#    nslookup example.com 127.0.0.1
+#
+# 5. 检查日志，应该看到：
+#    [debug] DNS routing matched host=baidu.com upstream_group=china
+#    [debug] returning DNS routing rule upstream_group=china
+#
+# 预期结果：
+# - ✅ baidu.com 被路由到 china 上游组
+# - ✅ example.com 被路由到 custom 上游组
+# - ✅ 即使 protection_enabled 和 filtering_enabled 都是 false
+# - ❌ 普通广告过滤规则不生效（因为filtering_enabled为false）

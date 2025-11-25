@@ -1,0 +1,9 @@
+! Title: Test Custom Domains for DNS Routing
+! Description: Test file for DNS routing independence
+! Homepage: https://github.com/AdguardTeam/AdGuardHome
+
+! Custom test domains
+||example.com^
+||test.com^
+||demo.com^
+||sample.org^

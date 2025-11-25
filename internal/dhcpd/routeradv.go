@@ -5,59 +5,57 @@ import (
 	"fmt"
 	"net"
 	"slices"
-	"sync/atomic"
-	"time"
 
-	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
 	"github.com/AdguardTeam/golibs/netutil"
-	"golang.org/x/net/icmp"
-	"golang.org/x/net/ipv6"
 )
 
 // raCtx is a context for the Router Advertisement logic.
-type raCtx struct {
-	// raAllowSLAAC is used to determine if the ICMP Router Advertisement
-	// messages should be sent.
-	//
-	// If both raAllowSLAAC and raSLAACOnly are false, the Router Advertisement
-	// messages aren't sent.
-	raAllowSLAAC bool
-
-	// raSLAACOnly is used to determine if the ICMP Router Advertisement
-	// messages should set M and O flags, see RFC 4861, section 4.2.
-	//
-	// If both raAllowSLAAC and raSLAACOnly are false, the Router Advertisement
-	// messages aren't sent.
-	raSLAACOnly bool
-
-	// ipAddr is an IP address used within the Source Link-Layer Address option.
-	// See RFC 4861, section 4.6.1.
-	ipAddr net.IP
-
-	// dnsIPAddr is an IP address used within the DNS Server option.
-	dnsIPAddr net.IP
-
-	// prefixIPAddr is an IP address used within the Prefix Information option.
-	// See RFC 4861, section 4.6.2.
-	prefixIPAddr net.IP
-
-	// ifaceName is the name of the interface used as a scope of the IP
-	// addresses.
-	ifaceName string
-
-	// iface is the network interface used to send the ICMPv6 packets.
-	iface *net.Interface
-
-	// packetSendPeriod is the interval between sending the ICMPv6 packets.
-	packetSendPeriod time.Duration
-
-	// conn is the ICMPv6 socket.
-	conn *icmp.PacketConn
-
-	// stop is used to stop the packet sending loop.
-	stop atomic.Value
-}
+// raCtx is a context for the Router Advertisement logic.
+//
+// TODO(e.burkov):  This struct is unused.  Remove it or use it.
+//
+// type raCtx struct {
+// 	// raAllowSLAAC is used to determine if the ICMP Router Advertisement
+// 	// messages should be sent.
+// 	//
+// 	// If both raAllowSLAAC and raSLAACOnly are false, the Router Advertisement
+// 	// messages aren't sent.
+// 	raAllowSLAAC bool
+//
+// 	// raSLAACOnly is used to determine if the ICMP Router Advertisement
+// 	// messages should set M and O flags, see RFC 4861, section 4.2.
+// 	//
+// 	// If both raAllowSLAAC and raSLAACOnly are false, the Router Advertisement
+// 	// messages aren't sent.
+// 	raSLAACOnly bool
+//
+// 	// ipAddr is an IP address used within the Source Link-Layer Address option.
+// 	// See RFC 4861, section 4.6.1.
+// 	ipAddr net.IP
+//
+// 	// dnsIPAddr is an IP address used within the DNS Server option.
+// 	dnsIPAddr net.IP
+//
+// 	// prefixIPAddr is an IP address used within the Prefix Information option.
+// 	// See RFC 4861, section 4.6.2.
+// 	prefixIPAddr net.IP
+//
+// 	// ifaceName is the name of the interface used as a scope of the IP
+// 	// addresses.
+// 	ifaceName string
+//
+// 	// iface is the network interface used to send the ICMPv6 packets.
+// 	iface *net.Interface
+//
+// 	// packetSendPeriod is the interval between sending the ICMPv6 packets.
+// 	packetSendPeriod time.Duration
+//
+// 	// conn is the ICMPv6 socket.
+// 	conn *icmp.PacketConn
+//
+// 	// stop is used to stop the packet sending loop.
+// 	stop atomic.Value
+// }
 
 type icmpv6RA struct {
 	managedAddressConfiguration bool
@@ -225,87 +223,87 @@ func createICMPv6RAPacket(params icmpv6RA) (data []byte, err error) {
 }
 
 // Init initializes RA module.
-func (ra *raCtx) Init() (err error) {
-	ra.stop.Store(0)
-	ra.conn = nil
-	if !ra.raAllowSLAAC && !ra.raSLAACOnly {
-		return nil
-	}
-
-	log.Debug("dhcpv6 ra: source IP address: %s  DNS IP address: %s", ra.ipAddr, ra.dnsIPAddr)
-
-	params := icmpv6RA{
-		managedAddressConfiguration: !ra.raSLAACOnly,
-		otherConfiguration:          !ra.raSLAACOnly,
-		mtu:                         uint32(ra.iface.MTU),
-		prefixLen:                   64,
-		recursiveDNSServer:          ra.dnsIPAddr,
-		sourceLinkLayerAddress:      ra.iface.HardwareAddr,
-	}
-	params.prefix = make([]byte, 16)
-	copy(params.prefix, ra.prefixIPAddr[:8]) // /64
-
-	var data []byte
-	data, err = createICMPv6RAPacket(params)
-	if err != nil {
-		return fmt.Errorf("creating packet: %w", err)
-	}
-
-	ipAndScope := ra.ipAddr.String() + "%" + ra.ifaceName
-	ra.conn, err = icmp.ListenPacket("ip6:ipv6-icmp", ipAndScope)
-	if err != nil {
-		return fmt.Errorf("dhcpv6 ra: icmp.ListenPacket: %w", err)
-	}
-
-	defer func() {
-		if err != nil {
-			err = errors.WithDeferred(err, ra.Close())
-		}
-	}()
-
-	con6 := ra.conn.IPv6PacketConn()
-
-	if err = con6.SetHopLimit(255); err != nil {
-		return fmt.Errorf("dhcpv6 ra: SetHopLimit: %w", err)
-	}
-
-	if err = con6.SetMulticastHopLimit(255); err != nil {
-		return fmt.Errorf("dhcpv6 ra: SetMulticastHopLimit: %w", err)
-	}
-
-	msg := &ipv6.ControlMessage{
-		HopLimit: 255,
-		Src:      ra.ipAddr,
-		IfIndex:  ra.iface.Index,
-	}
-	addr := &net.UDPAddr{
-		IP: net.ParseIP("ff02::1"),
-	}
-
-	go func() {
-		log.Debug("dhcpv6 ra: starting to send periodic RouterAdvertisement packets")
-		for ra.stop.Load() == 0 {
-			_, err = con6.WriteTo(data, msg, addr)
-			if err != nil {
-				log.Error("dhcpv6 ra: WriteTo: %s", err)
-			}
-			time.Sleep(ra.packetSendPeriod)
-		}
-		log.Debug("dhcpv6 ra: loop exit")
-	}()
-
-	return nil
-}
-
-// Close closes the module.
-func (ra *raCtx) Close() (err error) {
-	log.Debug("dhcpv6 ra: closing")
-
-	ra.stop.Store(1)
-
-	if ra.conn != nil {
-		return ra.conn.Close()
-	}
-
-	return nil
-}
+// func (ra *raCtx) Init() (err error) {
+// 	ra.stop.Store(0)
+// 	ra.conn = nil
+// 	if !ra.raAllowSLAAC && !ra.raSLAACOnly {
+// 		return nil
+// 	}
+//
+// 	log.Debug("dhcpv6 ra: source IP address: %s  DNS IP address: %s", ra.ipAddr, ra.dnsIPAddr)
+//
+// 	params := icmpv6RA{
+// 		managedAddressConfiguration: !ra.raSLAACOnly,
+// 		otherConfiguration:          !ra.raSLAACOnly,
+// 		mtu:                         uint32(ra.iface.MTU),
+// 		prefixLen:                   64,
+// 		recursiveDNSServer:          ra.dnsIPAddr,
+// 		sourceLinkLayerAddress:      ra.iface.HardwareAddr,
+// 	}
+// 	params.prefix = make([]byte, 16)
+// 	copy(params.prefix, ra.prefixIPAddr[:8]) // /64
+//
+// 	var data []byte
+// 	data, err = createICMPv6RAPacket(params)
+// 	if err != nil {
+// 		return fmt.Errorf("creating packet: %w", err)
+// 	}
+//
+// 	ipAndScope := ra.ipAddr.String() + "%" + ra.ifaceName
+// 	ra.conn, err = icmp.ListenPacket("ip6:ipv6-icmp", ipAndScope)
+// 	if err != nil {
+// 		return fmt.Errorf("dhcpv6 ra: icmp.ListenPacket: %w", err)
+// 	}
+//
+// 	defer func() {
+// 		if err != nil {
+// 			err = errors.WithDeferred(err, ra.Close())
+// 		}
+// 	}()
+//
+// 	con6 := ra.conn.IPv6PacketConn()
+//
+// 	if err = con6.SetHopLimit(255); err != nil {
+// 		return fmt.Errorf("dhcpv6 ra: SetHopLimit: %w", err)
+// 	}
+//
+// 	if err = con6.SetMulticastHopLimit(255); err != nil {
+// 		return fmt.Errorf("dhcpv6 ra: SetMulticastHopLimit: %w", err)
+// 	}
+//
+// 	msg := &ipv6.ControlMessage{
+// 		HopLimit: 255,
+// 		Src:      ra.ipAddr,
+// 		IfIndex:  ra.iface.Index,
+// 	}
+// 	addr := &net.UDPAddr{
+// 		IP: net.ParseIP("ff02::1"),
+// 	}
+//
+// 	go func() {
+// 		log.Debug("dhcpv6 ra: starting to send periodic RouterAdvertisement packets")
+// 		for ra.stop.Load() == 0 {
+// 			_, err = con6.WriteTo(data, msg, addr)
+// 			if err != nil {
+// 				log.Error("dhcpv6 ra: WriteTo: %s", err)
+// 			}
+// 			time.Sleep(ra.packetSendPeriod)
+// 		}
+// 		log.Debug("dhcpv6 ra: loop exit")
+// 	}()
+//
+// 	return nil
+// }
+//
+// // Close closes the module.
+// func (ra *raCtx) Close() (err error) {
+// 	log.Debug("dhcpv6 ra: closing")
+//
+// 	ra.stop.Store(1)
+//
+// 	if ra.conn != nil {
+// 		return ra.conn.Close()
+// 	}
+//
+// 	return nil
+// }

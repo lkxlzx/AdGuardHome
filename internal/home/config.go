@@ -147,7 +147,7 @@ type configuration struct {
 	// migration.  Also keep the blocked services in mind.
 	Filters           []filtering.FilterYAML `yaml:"filters"`
 	WhitelistFilters  []filtering.FilterYAML `yaml:"whitelist_filters"`
-	DnsRoutingFilters []filtering.FilterYAML `yaml:"dns_routing_filters"`
+	DNSRoutingFilters []filtering.FilterYAML `yaml:"dns_routing_filters"`
 	UserRules         []string               `yaml:"user_rules"`
 
 	DHCP      *dhcpd.ServerConfig `yaml:"dhcp"`
@@ -882,7 +882,7 @@ func (c *configuration) write(
 		globalContext.filters.WriteDiskConfig(config.Filtering)
 		config.Filters = config.Filtering.Filters
 		config.WhitelistFilters = config.Filtering.WhitelistFilters
-		config.DnsRoutingFilters = config.Filtering.DnsRoutingFilters
+		config.DNSRoutingFilters = config.Filtering.DNSRoutingFilters
 		config.UserRules = config.Filtering.UserRules
 	}
 

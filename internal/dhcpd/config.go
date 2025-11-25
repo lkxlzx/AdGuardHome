@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
-	"time"
 
 	"github.com/AdguardTeam/AdGuardHome/internal/agh"
 	"github.com/AdguardTeam/AdGuardHome/internal/aghhttp"
@@ -123,20 +122,11 @@ type V4ServerConf struct {
 	// 0: disable
 	ICMPTimeout uint32 `yaml:"icmp_timeout_msec" json:"-"`
 
-	// Custom Options.
-	//
-	// Option with arbitrary hexadecimal data:
-	//     DEC_CODE hex HEX_DATA
-	// where DEC_CODE is a decimal DHCPv4 option code in range [1..255]
-	//
 	// Option with IP data (only 1 IP is supported):
 	//     DEC_CODE ip IP_ADDR
 	Options []string `yaml:"options" json:"-"`
 
 	ipRange *ipRange
-
-	leaseTime  time.Duration // the time during which a dynamic lease is considered valid
-	dnsIPAddrs []netip.Addr  // IPv4 addresses to return to DHCP clients as DNS server addresses
 
 	// subnet contains the DHCP server's subnet.  The IP is the IP of the
 	// gateway.
@@ -257,10 +247,6 @@ type V6ServerConf struct {
 
 	RASLAACOnly  bool `yaml:"ra_slaac_only" json:"-"`  // send ICMPv6.RA packets without MO flags
 	RAAllowSLAAC bool `yaml:"ra_allow_slaac" json:"-"` // send ICMPv6.RA packets with MO flags
-
-	ipStart    net.IP        // starting IP address for dynamic leases
-	leaseTime  time.Duration // the time during which a dynamic lease is considered valid
-	dnsIPAddrs []net.IP      // IPv6 addresses to return to DHCP clients as DNS server addresses
 
 	// Server calls this function when leases data changes
 	notify func(uint32)

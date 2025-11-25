@@ -11,28 +11,30 @@ import "strings"
 // This function is used by both DNS routing and upstream group selection.
 func matchDomainPattern(domain, pattern string) bool {
 	domain = strings.ToLower(domain)
-	pattern = strings.ToLower(pattern)
-
-	// Parse Clash-style patterns
-	if strings.HasPrefix(pattern, "DOMAIN,") {
+	
+	// Parse Clash-style patterns (check before lowercasing to preserve prefix)
+	patternUpper := strings.ToUpper(pattern)
+	
+	if strings.HasPrefix(patternUpper, "DOMAIN,") {
 		// Exact match
-		targetDomain := strings.TrimPrefix(pattern, "DOMAIN,")
+		targetDomain := strings.ToLower(pattern[7:]) // Skip "DOMAIN,"
 		return domain == targetDomain
 	}
 
-	if strings.HasPrefix(pattern, "DOMAIN-SUFFIX,") {
+	if strings.HasPrefix(patternUpper, "DOMAIN-SUFFIX,") {
 		// Suffix match
-		suffix := strings.TrimPrefix(pattern, "DOMAIN-SUFFIX,")
+		suffix := strings.ToLower(pattern[14:]) // Skip "DOMAIN-SUFFIX,"
 		return domain == suffix || strings.HasSuffix(domain, "."+suffix)
 	}
 
-	if strings.HasPrefix(pattern, "DOMAIN-KEYWORD,") {
+	if strings.HasPrefix(patternUpper, "DOMAIN-KEYWORD,") {
 		// Keyword match
-		keyword := strings.TrimPrefix(pattern, "DOMAIN-KEYWORD,")
+		keyword := strings.ToLower(pattern[15:]) // Skip "DOMAIN-KEYWORD,"
 		return strings.Contains(domain, keyword)
 	}
 
 	// Default: treat as exact match
+	pattern = strings.ToLower(pattern)
 	return domain == pattern
 }
 

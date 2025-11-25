@@ -13,8 +13,6 @@ import (
 	"sync"
 
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/logutil/slogutil"
-	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/osutil"
 	"github.com/AdguardTeam/golibs/osutil/executil"
 	"github.com/AdguardTeam/golibs/service"
@@ -104,16 +102,17 @@ func (n Neighbor) Clone() (clone Neighbor) {
 
 // validatedHostname returns h if it's a valid hostname, or an empty string
 // otherwise, logging the validation error.
-func validatedHostname(logger *slog.Logger, h string) (host string) {
-	err := netutil.ValidateHostname(h)
-	if err != nil {
-		logger.Debug("parsing host of arp output", slogutil.KeyError, err)
-
-		return ""
-	}
-
-	return h
-}
+//
+// func validatedHostname(logger *slog.Logger, h string) (host string) {
+// 	err := netutil.ValidateHostname(h)
+// 	if err != nil {
+// 		logger.Debug("parsing host of arp output", slogutil.KeyError, err)
+//
+// 		return ""
+// 	}
+//
+// 	return h
+// }
 
 // neighs is the helper type that stores neighbors to avoid copying its methods
 // among all the [Interface] implementations.

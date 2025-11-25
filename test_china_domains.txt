@@ -1,0 +1,15 @@
+! Title: Test China Domains for DNS Routing
+! Description: Test file for DNS routing independence
+! Homepage: https://github.com/AdguardTeam/AdGuardHome
+
+! Chinese domains
+||baidu.com^
+||qq.com^
+||taobao.com^
+||jd.com^
+||weibo.com^
+||sina.com.cn^
+||163.com^
+||sohu.com^
+||tmall.com^
+||alipay.com^

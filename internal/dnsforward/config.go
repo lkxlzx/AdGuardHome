@@ -50,8 +50,8 @@ type UpstreamGroup struct {
 	IsDefault bool `yaml:"is_default" json:"is_default"`
 }
 
-// DnsRoutingRule represents a DNS routing rule that maps domains to upstream groups.
-type DnsRoutingRule struct {
+// DNSRoutingRule represents a DNS routing rule that maps domains to upstream groups.
+type DNSRoutingRule struct {
 	// ID is the unique identifier of the rule.
 	ID string `yaml:"id" json:"id"`
 
@@ -83,7 +83,7 @@ type DnsRoutingRule struct {
 }
 
 // CustomDomainRule represents a user-defined custom domain routing rule.
-// This is separate from DnsRoutingRule which is for URL-based filter lists.
+// This is separate from DNSRoutingRule which is for URL-based filter lists.
 type CustomDomainRule struct {
 	// Domain is the domain pattern to match.
 	Domain string `yaml:"domain" json:"domain"`
@@ -155,8 +155,8 @@ type Config struct {
 	// UpstreamGroups is the list of upstream DNS server groups for DNS routing.
 	UpstreamGroups []UpstreamGroup `yaml:"upstream_groups" json:"upstream_groups"`
 
-	// DnsRoutingRules is the list of DNS routing rules.
-	DnsRoutingRules []DnsRoutingRule `yaml:"dns_routing_rules" json:"dns_routing_rules"`
+	// DNSRoutingRules is the list of DNS routing rules.
+	DNSRoutingRules []DNSRoutingRule `yaml:"dns_routing_rules" json:"dns_routing_rules"`
 
 	// CustomDomainRules is the list of user-defined custom domain routing rules.
 	CustomDomainRules []CustomDomainRule `yaml:"custom_domain_rules" json:"custom_domain_rules"`
@@ -198,6 +198,10 @@ type Config struct {
 
 	// CacheOptimistic defines if optimistic cache mechanism should be used.
 	CacheOptimistic bool `yaml:"cache_optimistic"`
+
+	// DomainCacheSize is the capacity of the LRU cache for domain routing lookups.
+	// If 0 or negative, the default capacity of 1000 is used.
+	DomainCacheSize int `yaml:"domain_cache_size"`
 
 	// Other settings
 

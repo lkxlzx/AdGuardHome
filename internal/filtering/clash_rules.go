@@ -38,29 +38,76 @@ const (
 	clashRuleDownloadTimeout = 30 * time.Second
 	// maxClashRuleFileSize is the maximum size of a Clash rule file (10MB)
 	maxClashRuleFileSize = 10 * 1024 * 1024
+	// maxRetries is the maximum number of retry attempts for downloading rules
+	maxRetries = 3
+	// retryDelay is the delay between retry attempts
+	retryDelay = 2 * time.Second
 )
 
-// ParseClashRules parses a Clash rule file from a URL and returns domain rules
-func ParseClashRules(url string) ([]string, *ClashRuleStats, error) {
-	// Download the rule file
+// downloadWithRetry downloads content from URL with retry mechanism
+func downloadWithRetry(url string, maxRetries int) ([]byte, error) {
 	client := &http.Client{
 		Timeout: clashRuleDownloadTimeout,
 	}
 
-	resp, err := client.Get(url)
-	if err != nil {
-		return nil, nil, fmt.Errorf("downloading rules: %w", err)
-	}
-	defer resp.Body.Close()
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		resp, err := client.Get(url)
+		if err != nil {
+			lastErr = fmt.Errorf("attempt %d/%d failed: %w", attempt, maxRetries, err)
+			if attempt < maxRetries {
+				time.Sleep(retryDelay)
+				continue
+			}
+			return nil, lastErr
+		}
+		defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		// Check status code
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("attempt %d/%d: unexpected status code %d", attempt, maxRetries, resp.StatusCode)
+			if attempt < maxRetries {
+				time.Sleep(retryDelay)
+				continue
+			}
+			return nil, lastErr
+		}
+
+		// Check content length if available
+		if resp.ContentLength > maxClashRuleFileSize {
+			return nil, fmt.Errorf("file too large: %d bytes (max: %d)", resp.ContentLength, maxClashRuleFileSize)
+		}
+
+		// Read content with size limit
+		limitedReader := io.LimitReader(resp.Body, maxClashRuleFileSize+1)
+		content, err := io.ReadAll(limitedReader)
+		if err != nil {
+			lastErr = fmt.Errorf("attempt %d/%d: reading response: %w", attempt, maxRetries, err)
+			if attempt < maxRetries {
+				time.Sleep(retryDelay)
+				continue
+			}
+			return nil, lastErr
+		}
+
+		// Check if content exceeds size limit
+		if len(content) > maxClashRuleFileSize {
+			return nil, fmt.Errorf("file too large: exceeds %d bytes", maxClashRuleFileSize)
+		}
+
+		// Success
+		return content, nil
 	}
 
-	// Read the content
-	content, err := io.ReadAll(resp.Body)
+	return nil, lastErr
+}
+
+// ParseClashRules parses a Clash rule file from a URL and returns domain rules
+func ParseClashRules(url string) ([]string, *ClashRuleStats, error) {
+	// Download the rule file with retry mechanism
+	content, err := downloadWithRetry(url, maxRetries)
 	if err != nil {
-		return nil, nil, fmt.Errorf("reading response: %w", err)
+		return nil, nil, fmt.Errorf("downloading rules from %s: %w", url, err)
 	}
 
 	// Parse YAML

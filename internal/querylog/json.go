@@ -87,7 +87,7 @@ func (l *queryLog) entryToJSON(
 		if r := entry.Result.Rules[0]; len(r.Text) > 0 {
 			jsonEntry["rule"] = r.Text
 			jsonEntry["filterId"] = r.FilterListID
-			
+
 			// Add filter name if available
 			if l.getFilterName != nil {
 				filterName := l.getFilterName(int64(r.FilterListID))
@@ -185,17 +185,17 @@ func (l *queryLog) setOrigAns(ctx context.Context, entry *logEntry, jsonEntry jo
 	}
 }
 
-func resultRulesToJSONRules(rules []*filtering.ResultRule) (jsonRules []jobject) {
-	jsonRules = make([]jobject, len(rules))
-	for i, r := range rules {
-		jsonRules[i] = jobject{
-			"filter_list_id": r.FilterListID,
-			"text":           r.Text,
-		}
-	}
-
-	return jsonRules
-}
+// func resultRulesToJSONRules(rules []*filtering.ResultRule) (jsonRules []jobject) {
+// 	jsonRules = make([]jobject, len(rules))
+// 	for i, r := range rules {
+// 		jsonRules[i] = jobject{
+// 			"filter_list_id": r.FilterListID,
+// 			"text":           r.Text,
+// 		}
+// 	}
+//
+// 	return jsonRules
+// }
 
 // resultRulesToJSONRulesWithNames converts result rules to JSON with filter names.
 func (l *queryLog) resultRulesToJSONRulesWithNames(rules []*filtering.ResultRule) (jsonRules []jobject) {
@@ -205,7 +205,7 @@ func (l *queryLog) resultRulesToJSONRulesWithNames(rules []*filtering.ResultRule
 			"filter_list_id": r.FilterListID,
 			"text":           r.Text,
 		}
-		
+
 		// Add filter name if available
 		if l.getFilterName != nil {
 			filterName := l.getFilterName(int64(r.FilterListID))
@@ -213,7 +213,7 @@ func (l *queryLog) resultRulesToJSONRulesWithNames(rules []*filtering.ResultRule
 				rule["filter_name"] = filterName
 			}
 		}
-		
+
 		jsonRules[i] = rule
 	}
 
