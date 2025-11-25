@@ -174,7 +174,7 @@ const CustomRuleModal: React.FC<CustomRuleModalProps> = ({ isOpen, onClose, onSu
                                 <Trans>cancel_btn</Trans>
                             </button>
                             <button type="submit" className="btn btn-success">
-                                <Trans>add_btn</Trans>
+                                {editingRule ? t('save_btn') : t('add_btn')}
                             </button>
                         </div>
                     </form>

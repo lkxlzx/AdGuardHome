@@ -498,6 +498,7 @@
     "table_client": "客户端",
     "table_name": "名称",
     "save_btn": "保存",
+    "add_btn": "添加",
     "client_add": "添加客户端",
     "client_new": "新建客户端",
     "client_edit": "编辑客户端",
