@@ -63,6 +63,7 @@ type filterAddJSON struct {
 	DnsRouting     bool   `json:"dns_routing"`
 	UpstreamGroup  string `json:"upstream_group"`
 	UpdateInterval int    `json:"update_interval"` // Auto-update interval in minutes, 0 = disabled
+	Priority       int    `json:"priority"`        // Priority for DNS routing rules, lower number = higher priority
 }
 
 func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request) {
@@ -115,6 +116,7 @@ func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request
 		URL:            fj.URL,
 		Name:           fj.Name,
 		UpdateInterval: fj.UpdateInterval,
+		Priority:       fj.Priority,
 		white:          fj.Whitelist,
 		dnsRouting:     fj.DnsRouting,
 		Filter: Filter{
@@ -299,6 +301,7 @@ type filterURLReqData struct {
 	Enabled        bool   `json:"enabled"`
 	UpstreamGroup  string `json:"upstream_group"`
 	UpdateInterval int    `json:"update_interval"` // Auto-update interval in minutes, 0 = disabled
+	Priority       int    `json:"priority"`        // Priority for DNS routing rules, lower number = higher priority
 }
 
 type filterURLReq struct {
@@ -346,6 +349,7 @@ func (d *DNSFilter) handleFilteringSetURL(w http.ResponseWriter, r *http.Request
 		Name:           fj.Data.Name,
 		URL:            fj.Data.URL,
 		UpdateInterval: fj.Data.UpdateInterval,
+		Priority:       fj.Data.Priority,
 		Filter: Filter{
 			UpstreamGroup: fj.Data.UpstreamGroup,
 		},
@@ -457,6 +461,7 @@ type filterJSON struct {
 	LastUpdated    string `json:"last_updated,omitempty"`
 	UpstreamGroup  string `json:"upstream_group,omitempty"`
 	UpdateInterval int    `json:"update_interval,omitempty"` // Auto-update interval in minutes
+	Priority       int    `json:"priority,omitempty"`        // Priority for DNS routing rules
 
 	ID rulelist.APIID `json:"id"`
 
@@ -482,6 +487,7 @@ func filterToJSON(f FilterYAML) filterJSON {
 		Name:           f.Name,
 		UpstreamGroup:  f.UpstreamGroup,
 		UpdateInterval: f.UpdateInterval,
+		Priority:       f.Priority,
 		// #nosec G115 -- The number of rules must not be negative.
 		RulesCount: uint64(f.RulesCount),
 	}

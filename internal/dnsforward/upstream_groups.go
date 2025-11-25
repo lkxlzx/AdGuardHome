@@ -2,6 +2,7 @@ package dnsforward
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/AdguardTeam/dnsproxy/proxy"
@@ -100,15 +101,25 @@ func (s *Server) GetUpstreamGroupForDomain(domain string) string {
 	}
 
 	// Then, check DNS routing rules from filter lists
+	// Sort rules by priority (lower number = higher priority)
+	sortedRules := make([]DnsRoutingRule, 0, len(s.conf.DnsRoutingRules))
 	for _, rule := range s.conf.DnsRoutingRules {
-		if !rule.Enabled {
-			continue
+		if rule.Enabled {
+			sortedRules = append(sortedRules, rule)
 		}
+	}
+	
+	// Sort by priority (ascending order, so lower numbers come first)
+	sort.Slice(sortedRules, func(i, j int) bool {
+		return sortedRules[i].Priority < sortedRules[j].Priority
+	})
 
+	// Check rules in priority order
+	for _, rule := range sortedRules {
 		// Check each domain pattern in the rule
 		for _, pattern := range rule.Domains {
 			if matchDomainPattern(domain, pattern) {
-				s.logger.Debug("matched dns routing rule", "domain", domain, "pattern", pattern, "group_id", rule.GroupID)
+				s.logger.Debug("matched dns routing rule", "domain", domain, "pattern", pattern, "group_id", rule.GroupID, "priority", rule.Priority)
 				return rule.GroupID
 			}
 		}

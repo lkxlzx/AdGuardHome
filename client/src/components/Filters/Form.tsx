@@ -16,6 +16,7 @@ type FormValues = {
     url: string;
     upstreamGroup?: string;
     updateInterval?: number;
+    priority?: number;
 };
 
 const defaultValues: FormValues = {
@@ -24,6 +25,7 @@ const defaultValues: FormValues = {
     url: '',
     upstreamGroup: '',
     updateInterval: 0,
+    priority: 0,
 };
 
 type Props = {
@@ -219,6 +221,48 @@ export const Form = ({
                                         />
                                         <div className="form__description">
                                             {t('routing_rule_update_interval_hint')}
+                                        </div>
+                                    </div>
+
+                                    <div className="form__group">
+                                        <label className="form__label" htmlFor="priority">
+                                            {t('routing_rule_priority')}
+                                        </label>
+                                        <Controller
+                                            name="priority"
+                                            control={control}
+                                            rules={{
+                                                validate: (value) => {
+                                                    const num = Number(value);
+                                                    if (isNaN(num) || num < 0) {
+                                                        return t('form_error_positive_number');
+                                                    }
+                                                    return true;
+                                                }
+                                            }}
+                                            render={({ field, fieldState }) => (
+                                                <>
+                                                    <input
+                                                        {...field}
+                                                        type="number"
+                                                        id="priority"
+                                                        className={`form-control ${fieldState.error ? 'is-invalid' : ''}`}
+                                                        placeholder="0"
+                                                        min="0"
+                                                        step="1"
+                                                        disabled={processingAddFilter || processingConfigFilter}
+                                                        onChange={(e) => field.onChange(Number(e.target.value))}
+                                                    />
+                                                    {fieldState.error && (
+                                                        <div className="invalid-feedback">
+                                                            {fieldState.error.message}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
+                                        />
+                                        <div className="form__description">
+                                            {t('routing_rule_priority_hint')}
                                         </div>
                                     </div>
                                 </>

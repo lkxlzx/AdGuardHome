@@ -163,7 +163,7 @@ export const addClientInfo = (data: any, clients: any, ...params: any[]) =>
 export const normalizeFilters = (filters: any) =>
     filters
         ? filters.map((filter: any) => {
-              const { id, url, enabled, last_updated, name = 'Default name', rules_count = 0, upstream_group, update_interval } = filter;
+              const { id, url, enabled, last_updated, name = 'Default name', rules_count = 0, upstream_group, update_interval, priority } = filter;
 
               return {
                   id,
@@ -174,6 +174,7 @@ export const normalizeFilters = (filters: any) =>
                   rulesCount: rules_count,
                   upstreamGroup: upstream_group,
                   updateInterval: update_interval !== undefined ? update_interval : 0,
+                  priority: priority !== undefined ? priority : 0,
               };
           })
         : [];
@@ -488,13 +489,14 @@ export const getCurrentFilter = (url: any, filters: any) => {
     const filter = filters?.find((item: any) => url === item.url);
 
     if (filter) {
-        const { enabled, name, url, upstreamGroup, updateInterval } = filter;
+        const { enabled, name, url, upstreamGroup, updateInterval, priority } = filter;
         return {
             enabled,
             name,
             url,
             upstreamGroup,
             updateInterval: updateInterval !== undefined ? updateInterval : 0,
+            priority: priority !== undefined ? priority : 0,
         };
     }
 
@@ -503,6 +505,7 @@ export const getCurrentFilter = (url: any, filters: any) => {
         url: '',
         upstreamGroup: '',
         updateInterval: 0,
+        priority: 0,
     };
 };
 

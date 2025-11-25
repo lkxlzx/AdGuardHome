@@ -36,6 +36,7 @@ type FilterYAML struct {
 	RulesCount     int       `yaml:"-"`
 	LastUpdated    time.Time `yaml:"-"`
 	UpdateInterval int       `yaml:"update_interval"` // Auto-update interval in minutes, 0 = disabled
+	Priority       int       `yaml:"priority"`        // Priority for DNS routing rules, lower number = higher priority
 	checksum       uint32    // checksum of the file data
 	white          bool
 	dnsRouting     bool      // Internal flag: true if this filter is in DnsRoutingFilters list
@@ -161,6 +162,12 @@ func (d *DNSFilter) filterSetProperties(
 	if flt.UpdateInterval != newList.UpdateInterval {
 		flt.UpdateInterval = newList.UpdateInterval
 		// No need to restart for interval change
+	}
+
+	// Update priority
+	if flt.Priority != newList.Priority {
+		flt.Priority = newList.Priority
+		// No need to restart for priority change
 	}
 
 	if flt.URL != newList.URL {

@@ -187,6 +187,8 @@
     "routing_rule_group_hint": "选择此规则匹配的域名应使用的 DNS 上游组",
     "routing_rule_update_interval": "定时更新间隔（分钟）",
     "routing_rule_update_interval_hint": "设置规则自动更新的时间间隔，单位为分钟。设置为 0 表示不自动更新",
+    "routing_rule_priority": "优先级",
+    "routing_rule_priority_hint": "设置规则匹配优先级，数字越小优先级越高。优先级高的规则会先被匹配",
     "form_error_positive_number": "请输入大于或等于 0 的数字",
     "custom_rules_card_title": "自定义域名规则",
     "custom_rules_card_subtitle": "手动添加的域名分流规则",

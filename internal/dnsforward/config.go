@@ -76,6 +76,10 @@ type DnsRoutingRule struct {
 
 	// LastUpdated is the timestamp of the last update (for URL-based rules).
 	LastUpdated int64 `yaml:"last_updated" json:"last_updated"`
+
+	// Priority is the matching priority. Lower number = higher priority.
+	// Rules with higher priority are matched first.
+	Priority int `yaml:"priority" json:"priority"`
 }
 
 // CustomDomainRule represents a user-defined custom domain routing rule.
