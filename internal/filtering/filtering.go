@@ -821,18 +821,10 @@ func (d *DNSFilter) matchHostProcessAllowList(
 	)
 
 	// Get upstream group for DNS routing
+	// If multiple rules match, choose the one with highest priority (lowest priority number)
 	var upstreamGroup string
 	if len(matchedRules) > 0 {
-		filterID := matchedRules[0].GetFilterListID()
-		upstreamGroup = d.getUpstreamGroupByFilterID(filterID)
-		if upstreamGroup != "" {
-			d.logger.DebugContext(
-				ctx,
-				"dns routing upstream group found",
-				"filter_id", filterID,
-				"upstream_group", upstreamGroup,
-			)
-		}
+		upstreamGroup = d.getUpstreamGroupByPriority(ctx, matchedRules)
 	}
 	
 	// Use different reason for DNS routing rules
@@ -1002,6 +994,61 @@ func (d *DNSFilter) getUpstreamGroupByFilterID(filterID rules.ListID) string {
 	}
 
 	return ""
+}
+
+// getUpstreamGroupByPriority returns the upstream group ID from matched rules,
+// selecting the rule with the highest priority (lowest priority number).
+func (d *DNSFilter) getUpstreamGroupByPriority(ctx context.Context, matchedRules []rules.Rule) string {
+	d.conf.filtersMu.RLock()
+	defer d.conf.filtersMu.RUnlock()
+
+	// Build a map of filterID -> priority
+	filterPriority := make(map[rules.ListID]int)
+	filterUpstream := make(map[rules.ListID]string)
+	
+	for _, filter := range d.conf.DnsRoutingFilters {
+		filterPriority[filter.ID] = filter.Priority
+		filterUpstream[filter.ID] = filter.UpstreamGroup
+	}
+
+	// Find the matched rule with highest priority (lowest priority number)
+	var selectedFilterID rules.ListID
+	var selectedUpstream string
+	minPriority := int(^uint(0) >> 1) // Max int value
+	found := false
+
+	for _, rule := range matchedRules {
+		filterID := rule.GetFilterListID()
+		upstream, hasUpstream := filterUpstream[filterID]
+		
+		if !hasUpstream || upstream == "" {
+			continue
+		}
+
+		priority, hasPriority := filterPriority[filterID]
+		if !hasPriority {
+			priority = 0 // Default priority if not set
+		}
+
+		if !found || priority < minPriority {
+			minPriority = priority
+			selectedFilterID = filterID
+			selectedUpstream = upstream
+			found = true
+		}
+	}
+
+	if found {
+		d.logger.DebugContext(
+			ctx,
+			"dns routing upstream group found",
+			"filter_id", selectedFilterID,
+			"upstream_group", selectedUpstream,
+			"priority", minPriority,
+		)
+	}
+
+	return selectedUpstream
 }
 
 // GetFilterName returns the filter name by its ID.
