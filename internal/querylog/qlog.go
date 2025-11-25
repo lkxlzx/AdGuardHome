@@ -34,7 +34,8 @@ type queryLog struct {
 	conf       *Config
 	anonymizer *aghnet.IPMut
 
-	findClient func(ids []string) (c *Client, err error)
+	findClient     func(ids []string) (c *Client, err error)
+	getFilterName  func(id int64) (name string)
 
 	// buffer contains recent log entries.  The entries in this buffer must not
 	// be modified.

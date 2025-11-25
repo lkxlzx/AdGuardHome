@@ -68,6 +68,27 @@ export const setDnsConfig = (config: any) => async (dispatch: any) => {
             hasDnsSettings = true;
         }
 
+        if (Object.prototype.hasOwnProperty.call(data, 'upstream_groups')) {
+            console.log('setDnsConfig - before conversion:', config.upstream_groups);
+            // Convert upstreams from string to array for each group
+            data.upstream_groups = config.upstream_groups.map((group: any) => {
+                const upstreamsArray = typeof group.upstreams === 'string' 
+                    ? splitByNewLine(group.upstreams) 
+                    : group.upstreams;
+                console.log(`setDnsConfig - group ${group.name}:`, {
+                    original: group.upstreams,
+                    converted: upstreamsArray,
+                    type: typeof group.upstreams
+                });
+                return {
+                    ...group,
+                    upstreams: upstreamsArray,
+                };
+            });
+            console.log('setDnsConfig - after conversion:', data.upstream_groups);
+            hasDnsSettings = true;
+        }
+
         await apiClient.setDnsConfig(data);
 
         if (hasDnsSettings) {
@@ -76,7 +97,9 @@ export const setDnsConfig = (config: any) => async (dispatch: any) => {
             dispatch(addSuccessToast('config_successfully_saved'));
         }
 
-        dispatch(setDnsConfigSuccess(config));
+        // 重新获取配置以确保前后端同步
+        const updatedConfig = await apiClient.getDnsConfig();
+        dispatch(setDnsConfigSuccess(updatedConfig));
     } catch (error) {
         dispatch(addErrorToast({ error }));
         dispatch(setDnsConfigFailure());

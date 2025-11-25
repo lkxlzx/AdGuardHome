@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useDispatch, useSelector } from 'react-redux';
 
-import Upstream from './Upstream';
+import Upstream from './Upstream/UpstreamDnsSettings';
 
 import Access from './Access';
 

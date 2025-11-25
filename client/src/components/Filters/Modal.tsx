@@ -24,13 +24,18 @@ const MODAL_TYPE_TO_TITLE_TYPE_MAP = {
 /**
  * @param modalType {'EDIT_FILTERS' | 'ADD_FILTERS' | 'CHOOSE_FILTERING_LIST'}
  * @param whitelist {boolean}
+ * @param isRoutingRule {boolean}
  * @returns {'new_allowlist' | 'edit_allowlist' | 'choose_allowlist' |
- *           'new_blocklist' | 'edit_blocklist' | 'choose_blocklist' | null}
+ *           'new_blocklist' | 'edit_blocklist' | 'choose_blocklist' |
+ *           'new_routing_rule' | 'edit_routing_rule' | null}
  */
-const getTitle = (modalType: any, whitelist: any) => {
+const getTitle = (modalType: any, whitelist: any, isRoutingRule?: boolean) => {
     const titleType = MODAL_TYPE_TO_TITLE_TYPE_MAP[modalType];
     if (!titleType) {
         return null;
+    }
+    if (isRoutingRule) {
+        return `${titleType}_routing_rule`;
     }
     return `${titleType}_${whitelist ? 'allowlist' : 'blocklist'}`;
 };
@@ -65,6 +70,7 @@ interface ModalProps {
     whitelist?: boolean;
     filters: unknown[];
     filtersCatalog?: any;
+    isRoutingRule?: boolean;
 }
 
 class Modal extends Component<ModalProps> {
@@ -85,6 +91,7 @@ class Modal extends Component<ModalProps> {
             filters,
             t,
             filtersCatalog,
+            isRoutingRule,
         } = this.props;
 
         let initialValues;
@@ -105,7 +112,7 @@ class Modal extends Component<ModalProps> {
                 break;
         }
 
-        const title = t(getTitle(modalType, whitelist));
+        const title = t(getTitle(modalType, whitelist, isRoutingRule));
 
         return (
             <ReactModal
@@ -132,6 +139,7 @@ class Modal extends Component<ModalProps> {
                         closeModal={this.closeModal}
                         whitelist={whitelist}
                         toggleFilteringModal={toggleFilteringModal}
+                        isRoutingRule={isRoutingRule}
                     />
                 </div>
             </ReactModal>

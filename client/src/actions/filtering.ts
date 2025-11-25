@@ -48,11 +48,15 @@ export const addFilterFailure = createAction('ADD_FILTER_FAILURE');
 export const addFilterSuccess = createAction('ADD_FILTER_SUCCESS');
 
 export const addFilter =
-    (url: any, name: any, whitelist = false) =>
+    (url: any, name: any, whitelist = false, dnsRouting = false, upstreamGroup?: string) =>
     async (dispatch: any, getState: any) => {
         dispatch(addFilterRequest());
         try {
-            await apiClient.addFilter({ url, name, whitelist });
+            const filterData: any = { url, name, whitelist, dns_routing: dnsRouting };
+            if (upstreamGroup) {
+                filterData.upstream_group = upstreamGroup;
+            }
+            await apiClient.addFilter(filterData);
             dispatch(addFilterSuccess(url));
             if (getState().filtering.isModalOpen) {
                 dispatch(toggleFilteringModal());
@@ -70,11 +74,11 @@ export const removeFilterFailure = createAction('REMOVE_FILTER_FAILURE');
 export const removeFilterSuccess = createAction('REMOVE_FILTER_SUCCESS');
 
 export const removeFilter =
-    (url: any, whitelist = false) =>
+    (url: any, whitelist = false, dnsRouting = false) =>
     async (dispatch: any, getState: any) => {
         dispatch(removeFilterRequest());
         try {
-            await apiClient.removeFilter({ url, whitelist });
+            await apiClient.removeFilter({ url, whitelist, dns_routing: dnsRouting });
             dispatch(removeFilterSuccess(url));
             if (getState().filtering.isModalOpen) {
                 dispatch(toggleFilteringModal());
@@ -92,11 +96,11 @@ export const toggleFilterFailure = createAction('FILTER_TOGGLE_FAILURE');
 export const toggleFilterSuccess = createAction('FILTER_TOGGLE_SUCCESS');
 
 export const toggleFilterStatus =
-    (url: any, data: any, whitelist = false) =>
+    (url: any, data: any, whitelist = false, dnsRouting = false) =>
     async (dispatch: any) => {
         dispatch(toggleFilterRequest());
         try {
-            await apiClient.setFilterUrl({ url, data, whitelist });
+            await apiClient.setFilterUrl({ url, data, whitelist, dns_routing: dnsRouting });
             dispatch(toggleFilterSuccess(url));
             dispatch(getFilteringStatus());
         } catch (error) {
@@ -110,11 +114,17 @@ export const editFilterFailure = createAction('EDIT_FILTER_FAILURE');
 export const editFilterSuccess = createAction('EDIT_FILTER_SUCCESS');
 
 export const editFilter =
-    (url: any, data: any, whitelist = false) =>
+    (url: any, data: any, whitelist = false, dnsRouting = false) =>
     async (dispatch: any, getState: any) => {
         dispatch(editFilterRequest());
         try {
-            await apiClient.setFilterUrl({ url, data, whitelist });
+            // Ensure upstream_group is included in the data if present
+            const filterData: any = { ...data };
+            if (data.upstreamGroup) {
+                filterData.upstream_group = data.upstreamGroup;
+                delete filterData.upstreamGroup;
+            }
+            await apiClient.setFilterUrl({ url, data: filterData, whitelist, dns_routing: dnsRouting });
             dispatch(editFilterSuccess(url));
             if (getState().filtering.isModalOpen) {
                 dispatch(toggleFilteringModal());

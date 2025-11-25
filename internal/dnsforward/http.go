@@ -125,6 +125,15 @@ type jsonDNSConfig struct {
 	// systemResolvers to the front-end.  It's not a pointer to the slice since
 	// there is no need to omit it while decoding from JSON.
 	DefaultLocalPTRUpstreams []string `json:"default_local_ptr_upstreams,omitempty"`
+
+	// UpstreamGroups is the list of upstream DNS server groups.
+	UpstreamGroups *[]UpstreamGroup `json:"upstream_groups"`
+
+	// DnsRoutingRules is the list of DNS routing rules.
+	DnsRoutingRules *[]DnsRoutingRule `json:"dns_routing_rules"`
+
+	// CustomDomainRules is the list of user-defined custom domain routing rules.
+	CustomDomainRules *[]CustomDomainRule `json:"custom_domain_rules"`
 }
 
 // jsonUpstreamMode is a enumeration of upstream modes.
@@ -192,6 +201,18 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 		s.logger.ErrorContext(ctx, "getting local ptr upstreams", slogutil.KeyError, err)
 	}
 
+	// Clone upstream groups
+	upstreamGroups := make([]UpstreamGroup, len(s.conf.UpstreamGroups))
+	copy(upstreamGroups, s.conf.UpstreamGroups)
+
+	// Clone DNS routing rules
+	dnsRoutingRules := make([]DnsRoutingRule, len(s.conf.DnsRoutingRules))
+	copy(dnsRoutingRules, s.conf.DnsRoutingRules)
+
+	// Clone custom domain rules
+	customDomainRules := make([]CustomDomainRule, len(s.conf.CustomDomainRules))
+	copy(customDomainRules, s.conf.CustomDomainRules)
+
 	return &jsonDNSConfig{
 		Upstreams:                &upstreams,
 		UpstreamsFile:            &upstreamFile,
@@ -223,6 +244,9 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 		LocalPTRUpstreams:        &localPTRUpstreams,
 		DefaultLocalPTRUpstreams: defPTRUps,
 		DisabledUntil:            protectionDisabledUntil,
+		UpstreamGroups:           &upstreamGroups,
+		DnsRoutingRules:          &dnsRoutingRules,
+		CustomDomainRules:        &customDomainRules,
 	}
 }
 
@@ -668,6 +692,9 @@ func (s *Server) setConfigRestartable(dc *jsonDNSConfig) (shouldRestart bool) {
 		setIfNotNil(&s.conf.RatelimitSubnetLenIPv4, dc.RatelimitSubnetLenIPv4),
 		setIfNotNil(&s.conf.RatelimitSubnetLenIPv6, dc.RatelimitSubnetLenIPv6),
 		setIfNotNil(&s.conf.RatelimitWhitelist, dc.RatelimitWhitelist),
+		setIfNotNil(&s.conf.UpstreamGroups, dc.UpstreamGroups),
+		setIfNotNil(&s.conf.DnsRoutingRules, dc.DnsRoutingRules),
+		setIfNotNil(&s.conf.CustomDomainRules, dc.CustomDomainRules),
 	} {
 		shouldRestart = shouldRestart || hasSet
 		if shouldRestart {
@@ -863,6 +890,20 @@ func (s *Server) registerHandlers() {
 	s.conf.HTTPReg.Register(http.MethodGet, "/control/dns_info", s.handleGetConfig)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_config", s.handleSetConfig)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/test_upstream_dns", s.handleTestUpstreamDNS)
+	s.conf.HTTPReg.Register(http.MethodPost, "/control/validate_clash_rule", s.handleValidateClashRule)
+	
+	// Custom domain rules (simple domain -> upstream mapping)
+	s.conf.HTTPReg.Register(http.MethodPost, "/control/custom_domain_rules/add", s.handleAddCustomDomainRule)
+	s.conf.HTTPReg.Register(http.MethodPost, "/control/custom_domain_rules/update", s.handleUpdateCustomDomainRule)
+	s.conf.HTTPReg.Register(http.MethodPost, "/control/custom_domain_rules/delete", s.handleDeleteCustomDomainRule)
+	
+	// DNS routing rules (URL-based filter lists with upstream groups)
+	s.conf.HTTPReg.Register(http.MethodGet, "/control/dns_routing/status", s.handleDnsRoutingStatus)
+	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_routing/add_url", s.handleDnsRoutingAddURL)
+	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_routing/remove_url", s.handleDnsRoutingRemoveURL)
+	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_routing/set_url", s.handleDnsRoutingSetURL)
+	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_routing/refresh", s.handleDnsRoutingRefresh)
+	
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/protection", s.handleSetProtection)
 
 	s.conf.HTTPReg.Register(http.MethodGet, "/control/access/list", s.handleAccessList)
@@ -881,4 +922,135 @@ func (s *Server) registerHandlers() {
 	s.conf.HTTPReg.Register("", "/dns-query/", s.handleDoH)
 
 	webRegistered = true
+}
+
+// handleValidateClashRule handles requests to validate a Clash rule URL.
+func (s *Server) handleValidateClashRule(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	l := s.logger
+
+	type validateRequest struct {
+		URL string `json:"url"`
+	}
+
+	req := &validateRequest{}
+	err := json.NewDecoder(r.Body).Decode(req)
+	if err != nil {
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "decoding request: %s", err)
+		return
+	}
+
+	if req.URL == "" {
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "url is required")
+		return
+	}
+
+	// Import the filtering package to use ParseClashRules
+	// Note: This requires adding the import at the top of the file
+	stats, err := filtering.ValidateClashRuleURL(req.URL)
+	if err != nil {
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "validating clash rule: %s", err)
+		return
+	}
+
+	aghhttp.WriteJSONResponseOK(ctx, l, w, r, stats)
+}
+
+// handleAddCustomDomainRule handles requests to add a custom domain routing rule.
+func (s *Server) handleAddCustomDomainRule(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	l := s.logger
+
+	var rule CustomDomainRule
+	err := json.NewDecoder(r.Body).Decode(&rule)
+	if err != nil {
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "decoding request: %s", err)
+		return
+	}
+
+	// Validate rule
+	if rule.Domain == "" || rule.UpstreamGroup == "" {
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "domain and upstream_group are required")
+		return
+	}
+
+	// Set default match type if not provided
+	if rule.MatchType == "" {
+		rule.MatchType = "DOMAIN-SUFFIX"
+	}
+
+	// Enable rule by default
+	rule.Enabled = true
+
+	s.serverLock.Lock()
+	s.conf.CustomDomainRules = append(s.conf.CustomDomainRules, rule)
+	s.serverLock.Unlock()
+
+	aghhttp.OK(ctx, l, w)
+}
+
+// handleUpdateCustomDomainRule handles requests to update a custom domain routing rule.
+func (s *Server) handleUpdateCustomDomainRule(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	l := s.logger
+
+	type updateRequest struct {
+		Index int               `json:"index"`
+		Rule  CustomDomainRule  `json:"rule"`
+	}
+
+	req := &updateRequest{}
+	err := json.NewDecoder(r.Body).Decode(req)
+	if err != nil {
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "decoding request: %s", err)
+		return
+	}
+
+	s.serverLock.Lock()
+	defer s.serverLock.Unlock()
+
+	// Validate index
+	if req.Index < 0 || req.Index >= len(s.conf.CustomDomainRules) {
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "invalid index")
+		return
+	}
+
+	// Update the rule
+	s.conf.CustomDomainRules[req.Index] = req.Rule
+
+	aghhttp.OK(ctx, l, w)
+}
+
+// handleDeleteCustomDomainRule handles requests to delete a custom domain routing rule.
+func (s *Server) handleDeleteCustomDomainRule(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	l := s.logger
+
+	type deleteRequest struct {
+		Index int `json:"index"`
+	}
+
+	req := &deleteRequest{}
+	err := json.NewDecoder(r.Body).Decode(req)
+	if err != nil {
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "decoding request: %s", err)
+		return
+	}
+
+	s.serverLock.Lock()
+	defer s.serverLock.Unlock()
+
+	// Validate index
+	if req.Index < 0 || req.Index >= len(s.conf.CustomDomainRules) {
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "invalid index")
+		return
+	}
+
+	// Delete the rule
+	s.conf.CustomDomainRules = append(
+		s.conf.CustomDomainRules[:req.Index],
+		s.conf.CustomDomainRules[req.Index+1:]...,
+	)
+
+	aghhttp.OK(ctx, l, w)
 }

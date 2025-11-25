@@ -56,6 +56,9 @@ func (l *queryLog) entryToJSON(
 	entIP := slices.Clone(entry.IP)
 	anonFunc(entIP)
 
+	// Convert rules to JSON with filter names
+	jsonRules := l.resultRulesToJSONRulesWithNames(entry.Result.Rules)
+
 	jsonEntry = jobject{
 		"reason":       entry.Result.Reason.String(),
 		"elapsedMs":    strconv.FormatFloat(entry.Elapsed.Seconds()*1000, 'f', -1, 64),
@@ -65,7 +68,7 @@ func (l *queryLog) entryToJSON(
 		"cached":       entry.Cached,
 		"upstream":     entry.Upstream,
 		"question":     question,
-		"rules":        resultRulesToJSONRules(entry.Result.Rules),
+		"rules":        jsonRules,
 	}
 
 	if entIP.Equal(entry.IP) {
@@ -84,6 +87,15 @@ func (l *queryLog) entryToJSON(
 		if r := entry.Result.Rules[0]; len(r.Text) > 0 {
 			jsonEntry["rule"] = r.Text
 			jsonEntry["filterId"] = r.FilterListID
+			
+			// Add filter name if available
+			if l.getFilterName != nil {
+				filterName := l.getFilterName(int64(r.FilterListID))
+				l.logger.DebugContext(ctx, "getting filter name for query log", "filter_id", r.FilterListID, "filter_name", filterName)
+				if filterName != "" {
+					jsonEntry["filter_name"] = filterName
+				}
+			}
 		}
 	}
 
@@ -180,6 +192,29 @@ func resultRulesToJSONRules(rules []*filtering.ResultRule) (jsonRules []jobject)
 			"filter_list_id": r.FilterListID,
 			"text":           r.Text,
 		}
+	}
+
+	return jsonRules
+}
+
+// resultRulesToJSONRulesWithNames converts result rules to JSON with filter names.
+func (l *queryLog) resultRulesToJSONRulesWithNames(rules []*filtering.ResultRule) (jsonRules []jobject) {
+	jsonRules = make([]jobject, len(rules))
+	for i, r := range rules {
+		rule := jobject{
+			"filter_list_id": r.FilterListID,
+			"text":           r.Text,
+		}
+		
+		// Add filter name if available
+		if l.getFilterName != nil {
+			filterName := l.getFilterName(int64(r.FilterListID))
+			if filterName != "" {
+				rule["filter_name"] = filterName
+			}
+		}
+		
+		jsonRules[i] = rule
 	}
 
 	return jsonRules

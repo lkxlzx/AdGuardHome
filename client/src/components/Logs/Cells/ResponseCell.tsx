@@ -40,6 +40,8 @@ const ResponseCell = ({
 
     const whitelistFilters = useSelector((state: RootState) => state.filtering.whitelistFilters, shallowEqual);
 
+    const dnsRoutingFilters = useSelector((state: RootState) => state.filtering.dnsRoutingFilters, shallowEqual);
+
     const isDetailed = useSelector((state: RootState) => state.queryLogs.isDetailed);
 
     const services = useSelector((store: RootState) => store?.services);
@@ -89,7 +91,7 @@ const ResponseCell = ({
         response_code: status,
         ...(service_name &&
             services.allServices && { service_name: getServiceName(services.allServices, service_name) }),
-        ...(rules.length > 0 && { rule_label: getRulesToFilterList(rules, filters, whitelistFilters) }),
+        ...(rules.length > 0 && { rule_label: getRulesToFilterList(rules, filters, whitelistFilters, dnsRoutingFilters) }),
         response_table_header: renderResponses(response),
         original_response: renderResponses(originalResponse),
     };
@@ -111,7 +113,8 @@ const ResponseCell = ({
                 return getServiceName(services.allServices, service_name);
             case FILTERED_STATUS.FILTERED_BLACK_LIST:
             case FILTERED_STATUS.NOT_FILTERED_WHITE_LIST:
-                return getFilterNames(rules, filters, whitelistFilters).join(', ');
+            case FILTERED_STATUS.NOT_FILTERED_DNS_ROUTING:
+                return getFilterNames(rules, filters, whitelistFilters, dnsRoutingFilters).join(', ');
             default:
                 return formattedElapsedMs;
         }

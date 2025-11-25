@@ -58,6 +58,9 @@ type Config struct {
 	// FindClient returns client information by their IDs.
 	FindClient func(ids []string) (c *Client, err error)
 
+	// GetFilterName returns the filter name by its ID.
+	GetFilterName func(id int64) (name string)
+
 	// BaseDir is the base directory for log files.
 	BaseDir string
 
@@ -148,6 +151,13 @@ func newQueryLog(conf Config) (l *queryLog, err error) {
 		}
 	}
 
+	getFilterName := conf.GetFilterName
+	if getFilterName == nil {
+		getFilterName = func(_ int64) (name string) {
+			return ""
+		}
+	}
+
 	memSize := conf.MemSize
 	if memSize == 0 {
 		// If query log is enabled, we still need to write entries to a file.
@@ -156,8 +166,9 @@ func newQueryLog(conf Config) (l *queryLog, err error) {
 	}
 
 	l = &queryLog{
-		logger:     conf.Logger,
-		findClient: findClient,
+		logger:        conf.Logger,
+		findClient:    findClient,
+		getFilterName: getFilterName,
 
 		buffer: container.NewRingBuffer[*logEntry](memSize),
 

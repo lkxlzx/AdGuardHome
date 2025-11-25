@@ -31,6 +31,70 @@ import (
 	"github.com/ameshkov/dnscrypt/v2"
 )
 
+// UpstreamGroup represents a group of upstream DNS servers.
+type UpstreamGroup struct {
+	// ID is the unique identifier of the group.
+	ID string `yaml:"id" json:"id"`
+
+	// Name is the display name of the group.
+	Name string `yaml:"name" json:"name"`
+
+	// Upstreams is the list of upstream DNS servers.
+	Upstreams []string `yaml:"upstreams" json:"upstreams"`
+
+	// Enabled indicates if this group is enabled.
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// IsDefault indicates if this is the default group used when no routing
+	// rules match.
+	IsDefault bool `yaml:"is_default" json:"is_default"`
+}
+
+// DnsRoutingRule represents a DNS routing rule that maps domains to upstream groups.
+type DnsRoutingRule struct {
+	// ID is the unique identifier of the rule.
+	ID string `yaml:"id" json:"id"`
+
+	// Name is the display name of the rule.
+	Name string `yaml:"name" json:"name"`
+
+	// URL is the URL of the rule file (optional, for Clash format rules).
+	URL string `yaml:"url" json:"url"`
+
+	// Domains is the list of domain patterns to match.
+	// Supports AdGuard Home syntax: ||example.com^, *.example.com, etc.
+	Domains []string `yaml:"domains" json:"domains"`
+
+	// GroupID is the ID of the upstream group to use for matched domains.
+	GroupID string `yaml:"group_id" json:"group_id"`
+
+	// Enabled indicates if this rule is enabled.
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// RuleCount is the number of domain rules (for display purposes).
+	RuleCount int `yaml:"rule_count" json:"rule_count"`
+
+	// LastUpdated is the timestamp of the last update (for URL-based rules).
+	LastUpdated int64 `yaml:"last_updated" json:"last_updated"`
+}
+
+// CustomDomainRule represents a user-defined custom domain routing rule.
+// This is separate from DnsRoutingRule which is for URL-based filter lists.
+type CustomDomainRule struct {
+	// Domain is the domain pattern to match.
+	Domain string `yaml:"domain" json:"domain"`
+
+	// MatchType specifies how to match the domain.
+	// Valid values: "DOMAIN" (exact), "DOMAIN-SUFFIX" (suffix), "DOMAIN-KEYWORD" (keyword)
+	MatchType string `yaml:"match_type" json:"matchType"`
+
+	// UpstreamGroup is the ID of the upstream group to use for this domain.
+	UpstreamGroup string `yaml:"upstream_group" json:"upstreamGroup"`
+
+	// Enabled indicates whether this rule is active.
+	Enabled bool `yaml:"enabled" json:"enabled"`
+}
+
 // Config represents the DNS filtering configuration of AdGuard Home.  The zero
 // Config is empty and ready for use.
 type Config struct {
@@ -83,6 +147,15 @@ type Config struct {
 	// FastestTimeout replaces the default timeout for dialing IP addresses
 	// when FastestAddr is true.
 	FastestTimeout timeutil.Duration `yaml:"fastest_timeout"`
+
+	// UpstreamGroups is the list of upstream DNS server groups for DNS routing.
+	UpstreamGroups []UpstreamGroup `yaml:"upstream_groups" json:"upstream_groups"`
+
+	// DnsRoutingRules is the list of DNS routing rules.
+	DnsRoutingRules []DnsRoutingRule `yaml:"dns_routing_rules" json:"dns_routing_rules"`
+
+	// CustomDomainRules is the list of user-defined custom domain routing rules.
+	CustomDomainRules []CustomDomainRule `yaml:"custom_domain_rules" json:"custom_domain_rules"`
 
 	// Access settings
 

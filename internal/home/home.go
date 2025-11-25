@@ -419,6 +419,14 @@ func setupDNSFilteringConf(
 	conf.DataDir = filepath.Join(workDir, dataDir)
 	conf.Filters = slices.Clone(config.Filters)
 	conf.WhitelistFilters = slices.Clone(config.WhitelistFilters)
+	conf.DnsRoutingFilters = slices.Clone(config.DnsRoutingFilters)
+	
+	// Mark DNS routing filters with internal flag
+	// This flag is not saved to config file, so we need to set it on load
+	for i := range conf.DnsRoutingFilters {
+		conf.DnsRoutingFilters[i].MarkAsDnsRouting()
+	}
+	
 	conf.UserRules = slices.Clone(config.UserRules)
 	conf.HTTPClient = httpClient(tlsMgr)
 

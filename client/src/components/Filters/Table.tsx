@@ -21,15 +21,21 @@ interface TableProps {
     toggleFilter: (...args: unknown[]) => unknown;
     t: (...args: unknown[]) => string;
     whitelist?: boolean;
+    upstreamGroups?: any[];
+    showUpstreamGroup?: boolean;
 }
 
 class Table extends Component<TableProps> {
     getDateCell = (row: any) => CellWrap(row, formatDetailedDateTime);
 
     renderCheckbox = ({ original }: any) => {
-        const { processingConfigFilter, toggleFilter } = this.props;
-        const { url, name, enabled } = original;
-        const data = { name, url, enabled: !enabled };
+        const { processingConfigFilter, toggleFilter, showUpstreamGroup } = this.props;
+        const { url, name, enabled, upstreamGroup } = original;
+        
+        // For DNS routing rules, preserve the upstreamGroup field
+        const data = showUpstreamGroup 
+            ? { name, url, enabled: !enabled, upstreamGroup }
+            : { name, url, enabled: !enabled };
 
         return (
             <label className="checkbox">
@@ -46,7 +52,10 @@ class Table extends Component<TableProps> {
         );
     };
 
-    columns = [
+    getColumns = () => {
+        const { showUpstreamGroup, upstreamGroups } = this.props;
+        
+        const baseColumns = [
         {
             Header: <Trans>enabled_table_header</Trans>,
             accessor: 'enabled',
@@ -135,10 +144,39 @@ class Table extends Component<TableProps> {
                 );
             },
         },
-    ];
+        ];
+
+        // Only add DNS group column if showUpstreamGroup is true
+        if (showUpstreamGroup) {
+            // Find the position before rules_count column
+            const rulesCountIndex = baseColumns.findIndex((col: any) => col.accessor === 'rulesCount');
+            if (rulesCountIndex > 0) {
+                baseColumns.splice(rulesCountIndex, 0, {
+                    Header: <Trans>dns_group_table_header</Trans>,
+                    accessor: 'upstreamGroup',
+                    className: 'text-center',
+                    minWidth: 120,
+                    Cell: ({ value }: any) => {
+                        if (!upstreamGroups || !value) {
+                            return <div className="logs__row">{value || '-'}</div>;
+                        }
+                        
+                        // Find the group name by ID
+                        const group = upstreamGroups.find((g: any) => g.id === value);
+                        const displayName = group ? group.name : value;
+                        
+                        return <div className="logs__row">{displayName}</div>;
+                    },
+                });
+            }
+        }
+
+        return baseColumns;
+    };
 
     render() {
         const { loading, filters, t, whitelist } = this.props;
+        const columns = this.getColumns();
 
         const localStorageKey = whitelist
             ? LOCAL_STORAGE_KEYS.ALLOWLIST_PAGE_SIZE
@@ -147,7 +185,7 @@ class Table extends Component<TableProps> {
         return (
             <ReactTable
                 data={filters}
-                columns={this.columns}
+                columns={columns}
                 showPagination
                 defaultPageSize={LocalStorageHelper.getItem(localStorageKey) || 10}
                 onPageSizeChange={(size: any) => LocalStorageHelper.setItem(localStorageKey, size)}

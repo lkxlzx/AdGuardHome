@@ -57,9 +57,11 @@ func (d *DNSFilter) validateFilterURL(urlStr string) (err error) {
 }
 
 type filterAddJSON struct {
-	Name      string `json:"name"`
-	URL       string `json:"url"`
-	Whitelist bool   `json:"whitelist"`
+	Name          string `json:"name"`
+	URL           string `json:"url"`
+	Whitelist     bool   `json:"whitelist"`
+	DnsRouting    bool   `json:"dns_routing"`
+	UpstreamGroup string `json:"upstream_group"`
 }
 
 func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request) {
@@ -89,8 +91,8 @@ func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Check for duplicates
-	if d.filterExists(fj.URL) {
+	// Check for duplicates in the same filter type
+	if d.filterExistsInType(fj.URL, fj.Whitelist, fj.DnsRouting) {
 		err = errFilterExists
 		aghhttp.ErrorAndLog(
 			ctx,
@@ -108,12 +110,14 @@ func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request
 
 	// Set necessary properties
 	filt := FilterYAML{
-		Enabled: true,
-		URL:     fj.URL,
-		Name:    fj.Name,
-		white:   fj.Whitelist,
+		Enabled:    true,
+		URL:        fj.URL,
+		Name:       fj.Name,
+		white:      fj.Whitelist,
+		dnsRouting: fj.DnsRouting,
 		Filter: Filter{
-			ID: d.idGen.next(),
+			ID:            d.idGen.next(),
+			UpstreamGroup: fj.UpstreamGroup,
 		},
 	}
 
@@ -150,7 +154,15 @@ func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request
 
 	// URL is assumed valid so append it to filters, update config, write new
 	// file and reload it to engines.
-	err = d.filterAdd(filt)
+	// Determine which list to add to based on dns_routing flag
+	if fj.DnsRouting {
+		// Add to DNS routing filters
+		err = d.filterAddDnsRouting(filt)
+	} else {
+		// Add to regular filters or whitelist
+		err = d.filterAdd(filt)
+	}
+	
 	if err != nil {
 		aghhttp.ErrorAndLog(
 			ctx,
@@ -185,8 +197,9 @@ func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request
 
 func (d *DNSFilter) handleFilteringRemoveURL(w http.ResponseWriter, r *http.Request) {
 	type request struct {
-		URL       string `json:"url"`
-		Whitelist bool   `json:"whitelist"`
+		URL        string `json:"url"`
+		Whitelist  bool   `json:"whitelist"`
+		DnsRouting bool   `json:"dns_routing"`
 	}
 
 	ctx := r.Context()
@@ -212,9 +225,13 @@ func (d *DNSFilter) handleFilteringRemoveURL(w http.ResponseWriter, r *http.Requ
 		d.conf.filtersMu.Lock()
 		defer d.conf.filtersMu.Unlock()
 
-		filters := &d.conf.Filters
-		if req.Whitelist {
+		var filters *[]FilterYAML
+		if req.DnsRouting {
+			filters = &d.conf.DnsRoutingFilters
+		} else if req.Whitelist {
 			filters = &d.conf.WhitelistFilters
+		} else {
+			filters = &d.conf.Filters
 		}
 
 		delIdx := slices.IndexFunc(*filters, func(flt FilterYAML) bool {
@@ -275,15 +292,17 @@ func (d *DNSFilter) handleFilteringRemoveURL(w http.ResponseWriter, r *http.Requ
 }
 
 type filterURLReqData struct {
-	Name    string `json:"name"`
-	URL     string `json:"url"`
-	Enabled bool   `json:"enabled"`
+	Name          string `json:"name"`
+	URL           string `json:"url"`
+	Enabled       bool   `json:"enabled"`
+	UpstreamGroup string `json:"upstream_group"`
 }
 
 type filterURLReq struct {
-	Data      *filterURLReqData `json:"data"`
-	URL       string            `json:"url"`
-	Whitelist bool              `json:"whitelist"`
+	Data       *filterURLReqData `json:"data"`
+	URL        string            `json:"url"`
+	Whitelist  bool              `json:"whitelist"`
+	DnsRouting bool              `json:"dns_routing"`
 }
 
 func (d *DNSFilter) handleFilteringSetURL(w http.ResponseWriter, r *http.Request) {
@@ -323,9 +342,12 @@ func (d *DNSFilter) handleFilteringSetURL(w http.ResponseWriter, r *http.Request
 		Enabled: fj.Data.Enabled,
 		Name:    fj.Data.Name,
 		URL:     fj.Data.URL,
+		Filter: Filter{
+			UpstreamGroup: fj.Data.UpstreamGroup,
+		},
 	}
 
-	restart, err := d.filterSetProperties(fj.URL, filt, fj.Whitelist)
+	restart, err := d.filterSetProperties(fj.URL, filt, fj.Whitelist, fj.DnsRouting)
 	if err != nil {
 		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "%s", err)
 
@@ -402,9 +424,10 @@ func (d *DNSFilter) handleFilteringRefresh(w http.ResponseWriter, r *http.Reques
 }
 
 type filterJSON struct {
-	URL         string `json:"url"`
-	Name        string `json:"name"`
-	LastUpdated string `json:"last_updated,omitempty"`
+	URL           string `json:"url"`
+	Name          string `json:"name"`
+	LastUpdated   string `json:"last_updated,omitempty"`
+	UpstreamGroup string `json:"upstream_group,omitempty"`
 
 	ID rulelist.APIID `json:"id"`
 
@@ -413,20 +436,22 @@ type filterJSON struct {
 }
 
 type filteringConfig struct {
-	Filters          []filterJSON `json:"filters"`
-	WhitelistFilters []filterJSON `json:"whitelist_filters"`
-	UserRules        []string     `json:"user_rules"`
-	Interval         uint32       `json:"interval"` // in hours
-	Enabled          bool         `json:"enabled"`
+	Filters           []filterJSON `json:"filters"`
+	WhitelistFilters  []filterJSON `json:"whitelist_filters"`
+	DnsRoutingFilters []filterJSON `json:"dns_routing_filters"`
+	UserRules         []string     `json:"user_rules"`
+	Interval          uint32       `json:"interval"` // in hours
+	Enabled           bool         `json:"enabled"`
 }
 
 func filterToJSON(f FilterYAML) filterJSON {
 	fj := filterJSON{
 		// #nosec G115 -- The overflow is required for backwards compatibility.
-		ID:      rulelist.APIID(f.ID),
-		Enabled: f.Enabled,
-		URL:     f.URL,
-		Name:    f.Name,
+		ID:            rulelist.APIID(f.ID),
+		Enabled:       f.Enabled,
+		URL:           f.URL,
+		Name:          f.Name,
+		UpstreamGroup: f.UpstreamGroup,
 		// #nosec G115 -- The number of rules must not be negative.
 		RulesCount: uint64(f.RulesCount),
 	}
@@ -451,6 +476,10 @@ func (d *DNSFilter) handleFilteringStatus(w http.ResponseWriter, r *http.Request
 	for _, f := range d.conf.WhitelistFilters {
 		fj := filterToJSON(f)
 		resp.WhitelistFilters = append(resp.WhitelistFilters, fj)
+	}
+	for _, f := range d.conf.DnsRoutingFilters {
+		fj := filterToJSON(f)
+		resp.DnsRoutingFilters = append(resp.DnsRoutingFilters, fj)
 	}
 	resp.UserRules = d.conf.UserRules
 	d.conf.filtersMu.RUnlock()

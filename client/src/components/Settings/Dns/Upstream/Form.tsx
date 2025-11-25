@@ -35,6 +35,7 @@ type FormData = {
 type FormProps = {
     initialValues?: Partial<FormData>;
     onSubmit: (data: FormData) => void;
+    upstreamGroupsContent?: React.ReactNode;
 };
 
 const upstreamModeOptions = [
@@ -55,7 +56,7 @@ const upstreamModeOptions = [
     },
 ];
 
-const Form = ({ initialValues, onSubmit }: FormProps) => {
+const Form = ({ initialValues, onSubmit, upstreamGroupsContent }: FormProps) => {
     const { t } = useTranslation();
     const dispatch = useDispatch();
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -98,54 +99,32 @@ const Form = ({ initialValues, onSubmit }: FormProps) => {
     return (
         <form onSubmit={handleSubmit(onSubmit)} className="form--upstream">
             <div className="row">
-                <label className="col form__label" htmlFor="upstream_dns">
-                    <Trans
-                        components={{
-                            a: <a href={UPSTREAM_CONFIGURATION_WIKI_LINK} target="_blank" rel="noopener noreferrer" />,
-                        }}>
-                        upstream_dns_help
-                    </Trans>{' '}
-                    <Trans
-                        components={[
-                            <a
-                                href="https://link.adtidy.org/forward.html?action=dns_kb_providers&from=ui&app=home"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                key="0">
-                                DNS providers
-                            </a>,
-                        ]}>
-                        dns_providers
-                    </Trans>
-                </label>
-
-                <div className="col-12 mb-4">
-                    <div className="text-edit-container">
-                        <Controller
-                            name="upstream_dns"
-                            control={control}
-                            render={({ field }) => (
-                                <>
-                                    <Textarea
-                                        {...field}
-                                        id={UPSTREAM_DNS_NAME}
-                                        data-testid="upstream_dns"
-                                        className="form-control--textarea-large text-input"
-                                        wrapperClassName="mb-0"
-                                        placeholder={t('upstream_dns')}
-                                        disabled={!!upstream_dns_file || processingSetConfig || processingTestUpstream}
-                                        onScroll={(e) => syncScroll(e, textareaRef)}
-                                        trimOnBlur
-                                    />
-                                    {getTextareaCommentsHighlight(textareaRef, upstream_dns)}
-                                </>
-                            )}
-                        />
-                    </div>
+                <div className="col-12">
+                    <label className="form__label">
+                        <Trans
+                            components={{
+                                a: <a href={UPSTREAM_CONFIGURATION_WIKI_LINK} target="_blank" rel="noopener noreferrer" />,
+                            }}>
+                            upstream_dns_help
+                        </Trans>{' '}
+                        <Trans
+                            components={[
+                                <a
+                                    href="https://link.adtidy.org/forward.html?action=dns_kb_providers&from=ui&app=home"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    key="0">
+                                    DNS providers
+                                </a>,
+                            ]}>
+                            dns_providers
+                        </Trans>
+                    </label>
                 </div>
 
+                <div className="col-12 mb-4">{upstreamGroupsContent}</div>
+
                 <div className="col-12">
-                    <Examples />
                     <hr />
                 </div>
 

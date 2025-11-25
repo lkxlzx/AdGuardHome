@@ -19,6 +19,11 @@ class Api {
             axiosConfig.headers['Content-Type'] = axiosConfig.headers['Content-Type'] || 'application/json';
         }
 
+        // Set a default timeout of 30 seconds for DNS config updates
+        if (!axiosConfig.timeout) {
+            axiosConfig.timeout = path === 'dns_config' ? 30000 : 10000;
+        }
+
         try {
             const response = await axios({
                 url,
@@ -162,6 +167,47 @@ class Api {
         const url = getPathWithQueryString(path, params);
 
         return this.makeRequest(url, method);
+    }
+
+    // DNS Routing
+    DNS_ROUTING_STATUS = { path: 'dns_routing/status', method: 'GET' };
+    DNS_ROUTING_ADD_URL = { path: 'dns_routing/add_url', method: 'POST' };
+    DNS_ROUTING_REMOVE_URL = { path: 'dns_routing/remove_url', method: 'POST' };
+    DNS_ROUTING_SET_URL = { path: 'dns_routing/set_url', method: 'POST' };
+    DNS_ROUTING_REFRESH = { path: 'dns_routing/refresh', method: 'POST' };
+
+    getDnsRoutingStatus() {
+        const { path, method } = this.DNS_ROUTING_STATUS;
+        return this.makeRequest(path, method);
+    }
+
+    addDnsRoutingUrl(url: string, name: string, groupId: string, enabled = true) {
+        const { path, method } = this.DNS_ROUTING_ADD_URL;
+        const parameters = {
+            data: { url, name, group_id: groupId, enabled },
+        };
+        return this.makeRequest(path, method, parameters);
+    }
+
+    removeDnsRoutingUrl(url: string) {
+        const { path, method } = this.DNS_ROUTING_REMOVE_URL;
+        const parameters = {
+            data: { url },
+        };
+        return this.makeRequest(path, method, parameters);
+    }
+
+    setDnsRoutingUrl(url: string, data: any) {
+        const { path, method } = this.DNS_ROUTING_SET_URL;
+        const parameters = {
+            data: { url, data },
+        };
+        return this.makeRequest(path, method, parameters);
+    }
+
+    refreshDnsRouting() {
+        const { path, method } = this.DNS_ROUTING_REFRESH;
+        return this.makeRequest(path, method);
     }
 
     // Parental

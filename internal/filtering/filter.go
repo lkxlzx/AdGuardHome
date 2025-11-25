@@ -37,6 +37,7 @@ type FilterYAML struct {
 	LastUpdated time.Time `yaml:"-"`
 	checksum    uint32    // checksum of the file data
 	white       bool
+	dnsRouting  bool      // Internal flag: true if this filter is in DnsRoutingFilters list
 
 	Filter `yaml:",inline"`
 }
@@ -45,6 +46,13 @@ type FilterYAML struct {
 func (filter *FilterYAML) unload() {
 	filter.RulesCount = 0
 	filter.checksum = 0
+}
+
+// MarkAsDnsRouting marks this filter as a DNS routing filter.
+// This is used when loading filters from config file, as the dnsRouting flag
+// is not saved to the config file.
+func (filter *FilterYAML) MarkAsDnsRouting() {
+	filter.dnsRouting = true
 }
 
 // Path to the filter contents
@@ -93,13 +101,18 @@ func (d *DNSFilter) filterSetProperties(
 	listURL string,
 	newList FilterYAML,
 	isAllowlist bool,
+	isDnsRouting bool,
 ) (shouldRestart bool, err error) {
 	d.conf.filtersMu.Lock()
 	defer d.conf.filtersMu.Unlock()
 
-	filters := d.conf.Filters
-	if isAllowlist {
+	var filters []FilterYAML
+	if isDnsRouting {
+		filters = d.conf.DnsRoutingFilters
+	} else if isAllowlist {
 		filters = d.conf.WhitelistFilters
+	} else {
+		filters = d.conf.Filters
 	}
 
 	i := slices.IndexFunc(filters, func(flt FilterYAML) bool { return flt.URL == listURL })
@@ -128,6 +141,13 @@ func (d *DNSFilter) filterSetProperties(
 	}(flt.URL, flt.Name, flt.Enabled, flt.LastUpdated, flt.RulesCount)
 
 	flt.Name = newList.Name
+
+	// Update upstream group if changed and not empty
+	// Empty value means the field was not provided, so we should keep the existing value
+	if newList.UpstreamGroup != "" && flt.UpstreamGroup != newList.UpstreamGroup {
+		flt.UpstreamGroup = newList.UpstreamGroup
+		shouldRestart = true
+	}
 
 	if flt.URL != newList.URL {
 		if d.filterExistsLocked(newList.URL) {
@@ -190,6 +210,36 @@ func (d *DNSFilter) filterExistsLocked(url string) (ok bool) {
 		}
 	}
 
+	for _, f := range d.conf.DnsRoutingFilters {
+		if f.URL == url {
+			return true
+		}
+	}
+
+	return false
+}
+
+// filterExistsInType returns true if a filter with the same url exists in the specified filter type.
+// It's safe for concurrent use.
+func (d *DNSFilter) filterExistsInType(url string, isWhitelist bool, isDnsRouting bool) (ok bool) {
+	d.conf.filtersMu.RLock()
+	defer d.conf.filtersMu.RUnlock()
+
+	var filters []FilterYAML
+	if isDnsRouting {
+		filters = d.conf.DnsRoutingFilters
+	} else if isWhitelist {
+		filters = d.conf.WhitelistFilters
+	} else {
+		filters = d.conf.Filters
+	}
+
+	for _, f := range filters {
+		if f.URL == url {
+			return true
+		}
+	}
+
 	return false
 }
 
@@ -212,6 +262,27 @@ func (d *DNSFilter) filterAdd(flt FilterYAML) (err error) {
 	} else {
 		d.conf.Filters = append(d.conf.Filters, flt)
 	}
+
+	return nil
+}
+
+// filterAddDnsRouting adds a DNS routing filter
+func (d *DNSFilter) filterAddDnsRouting(flt FilterYAML) (err error) {
+	// Defer annotating to unlock sooner.
+	defer func() { err = errors.Annotate(err, "adding dns routing filter: %w") }()
+
+	d.conf.filtersMu.Lock()
+	defer d.conf.filtersMu.Unlock()
+
+	// Check for duplicates.
+	if d.filterExistsLocked(flt.URL) {
+		return errFilterExists
+	}
+
+	// Mark this filter as a DNS routing filter
+	flt.dnsRouting = true
+
+	d.conf.DnsRoutingFilters = append(d.conf.DnsRoutingFilters, flt)
 
 	return nil
 }
@@ -517,8 +588,39 @@ func (d *DNSFilter) updateIntl(ctx context.Context, flt *FilterYAML) (ok bool, e
 	bufPtr := d.bufPool.Get()
 	defer d.bufPool.Put(bufPtr)
 
-	p := rulelist.NewParser()
-	res, err = p.Parse(tmpFile, r, *bufPtr)
+	// Check if this is a domain routing rule (from dns_routing_filters list) and a Clash rule
+	isDomainRoutingRule := flt.dnsRouting
+	isClashRule := IsClashRuleURL(flt.URL)
+
+	if isDomainRoutingRule && isClashRule {
+		// Process Clash rules: filter out IP rules and keep only domain rules
+		d.logger.DebugContext(ctx, "processing clash rule for domain routing", "id", flt.ID, "url", flt.URL)
+		
+		stats, err := ProcessClashRuleFile(r, tmpFile)
+		if err != nil {
+			return false, fmt.Errorf("processing clash rule: %w", err)
+		}
+		
+		d.logger.InfoContext(
+			ctx,
+			"clash rule processed",
+			"id", flt.ID,
+			"total_rules", stats.TotalRules,
+			"valid_domains", stats.ValidDomains,
+			"filtered_ip_rules", stats.IPRules,
+		)
+		
+		// Create a parse result for Clash rules
+		res = &rulelist.ParseResult{
+			RulesCount: stats.ValidDomains,
+			// Calculate checksum from the processed content
+			Checksum: flt.checksum + 1, // Simple increment to force update
+		}
+	} else {
+		// Normal filter processing
+		p := rulelist.NewParser()
+		res, err = p.Parse(tmpFile, r, *bufPtr)
+	}
 
 	return res.Checksum != flt.checksum && err == nil, err
 }
@@ -655,7 +757,7 @@ func (d *DNSFilter) EnableFilters(async bool) {
 
 // enableFiltersLocked enables filters under the conf.filtersMu lock.
 func (d *DNSFilter) enableFiltersLocked(ctx context.Context, async bool) {
-	filters := make([]Filter, 1, len(d.conf.Filters)+len(d.conf.WhitelistFilters)+1)
+	filters := make([]Filter, 1, len(d.conf.Filters)+len(d.conf.WhitelistFilters)+len(d.conf.DnsRoutingFilters)+1)
 	filters[0] = Filter{
 		ID:   rulelist.IDCustom,
 		Data: []byte(strings.Join(d.conf.UserRules, "\n")),
@@ -681,6 +783,19 @@ func (d *DNSFilter) enableFiltersLocked(ctx context.Context, async bool) {
 		allowFilters = append(allowFilters, Filter{
 			ID:       filter.ID,
 			FilePath: filter.Path(d.conf.DataDir),
+		})
+	}
+
+	// Add DNS routing filters to allowFilters with upstream group info
+	for _, filter := range d.conf.DnsRoutingFilters {
+		if !filter.Enabled {
+			continue
+		}
+
+		allowFilters = append(allowFilters, Filter{
+			ID:            filter.ID,
+			FilePath:      filter.Path(d.conf.DataDir),
+			UpstreamGroup: filter.UpstreamGroup,
 		})
 	}
 

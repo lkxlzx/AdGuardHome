@@ -36,6 +36,10 @@ type Result struct {
 	// Reason is the reason for blocking or unblocking the request.
 	Reason Reason `json:",omitempty"`
 
+	// UpstreamGroup is the ID of the upstream group to use for DNS routing.
+	// It is empty unless the request matched a DNS routing rule.
+	UpstreamGroup string `json:",omitempty"`
+
 	// IsFiltered is true if the request is filtered.
 	//
 	// TODO(d.kolyshev): Get rid of this flag.
@@ -76,6 +80,9 @@ const (
 
 	// NotFilteredAllowList: the host is explicitly allowed.
 	NotFilteredAllowList
+
+	// NotFilteredDNSRouting: the host matched a DNS routing rule.
+	NotFilteredDNSRouting
 
 	// NotFilteredError is returned when there was an error during checking.
 	// Reserved, currently unused.
@@ -120,9 +127,10 @@ const (
 // TODO(a.garipov): Resync with actual code names or replace completely in HTTP
 // API v1.
 var reasonNames = []string{
-	NotFilteredNotFound:  "NotFilteredNotFound",
-	NotFilteredAllowList: "NotFilteredWhiteList",
-	NotFilteredError:     "NotFilteredError",
+	NotFilteredNotFound:    "NotFilteredNotFound",
+	NotFilteredAllowList:   "NotFilteredWhiteList",
+	NotFilteredDNSRouting:  "NotFilteredDNSRouting",
+	NotFilteredError:       "NotFilteredError",
 
 	FilteredBlockList:      "FilteredBlackList",
 	FilteredSafeBrowsing:   "FilteredSafeBrowsing",

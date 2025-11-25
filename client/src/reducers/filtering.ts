@@ -166,6 +166,7 @@ const filtering = handleActions(
         isFilterAdded: false,
         filters: [],
         whitelistFilters: [],
+        dnsRoutingFilters: [],
         userRules: '',
         interval: 24,
         enabled: true,

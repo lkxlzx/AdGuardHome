@@ -75,12 +75,26 @@ func initDNS(
 		return fmt.Errorf("init stats: %w", err)
 	}
 
+	// Initialize filters first so we can use it in querylog
+	// Copy filter lists from config to filtering config
+	config.Filtering.Filters = config.Filters
+	config.Filtering.WhitelistFilters = config.WhitelistFilters
+	config.Filtering.DnsRoutingFilters = config.DnsRoutingFilters
+	config.Filtering.UserRules = config.UserRules
+	
+	globalContext.filters, err = filtering.New(config.Filtering, nil)
+	if err != nil {
+		// Don't wrap the error, since it's informative enough as is.
+		return err
+	}
+
 	conf := querylog.Config{
 		Logger:            baseLogger.With(slogutil.KeyPrefix, "querylog"),
 		Anonymizer:        anonymizer,
 		ConfigModifier:    confModifier,
 		HTTPReg:           httpReg,
 		FindClient:        globalContext.clients.findMultiple,
+		GetFilterName:     globalContext.filters.GetFilterName,
 		BaseDir:           querylogDir,
 		AnonymizeClientIP: config.DNS.AnonymizeClientIP,
 		RotationIvl:       time.Duration(config.QueryLog.Interval),
@@ -98,12 +112,6 @@ func initDNS(
 	globalContext.queryLog, err = querylog.New(conf)
 	if err != nil {
 		return fmt.Errorf("init querylog: %w", err)
-	}
-
-	globalContext.filters, err = filtering.New(config.Filtering, nil)
-	if err != nil {
-		// Don't wrap the error, since it's informative enough as is.
-		return err
 	}
 
 	return initDNSServer(

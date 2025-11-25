@@ -163,7 +163,7 @@ export const addClientInfo = (data: any, clients: any, ...params: any[]) =>
 export const normalizeFilters = (filters: any) =>
     filters
         ? filters.map((filter: any) => {
-              const { id, url, enabled, last_updated, name = 'Default name', rules_count = 0 } = filter;
+              const { id, url, enabled, last_updated, name = 'Default name', rules_count = 0, upstream_group } = filter;
 
               return {
                   id,
@@ -172,12 +172,13 @@ export const normalizeFilters = (filters: any) =>
                   lastUpdated: last_updated,
                   name,
                   rulesCount: rules_count,
+                  upstreamGroup: upstream_group,
               };
           })
         : [];
 
 export const normalizeFilteringStatus = (filteringStatus: any) => {
-    const { enabled, filters, user_rules: userRules, interval, whitelist_filters } = filteringStatus;
+    const { enabled, filters, user_rules: userRules, interval, whitelist_filters, dns_routing_filters } = filteringStatus;
     const newUserRules = Array.isArray(userRules) ? userRules.join('\n') : '';
 
     return {
@@ -185,6 +186,7 @@ export const normalizeFilteringStatus = (filteringStatus: any) => {
         userRules: newUserRules,
         filters: normalizeFilters(filters),
         whitelistFilters: normalizeFilters(whitelist_filters),
+        dnsRoutingFilters: normalizeFilters(dns_routing_filters),
         interval,
     };
 };
@@ -485,17 +487,19 @@ export const getCurrentFilter = (url: any, filters: any) => {
     const filter = filters?.find((item: any) => url === item.url);
 
     if (filter) {
-        const { enabled, name, url } = filter;
+        const { enabled, name, url, upstreamGroup } = filter;
         return {
             enabled,
             name,
             url,
+            upstreamGroup,
         };
     }
 
     return {
         name: '',
         url: '',
+        upstreamGroup: '',
     };
 };
 
@@ -869,6 +873,7 @@ export type Filter = {
 export type Rule = {
     filter_list_id: number;
     text: string;
+    filter_name?: string;
 };
 
 export const getFilterName = (
@@ -876,25 +881,34 @@ export const getFilterName = (
     whitelistFilters: Filter[],
     filterId: number,
     resolveFilterName = (filter: Filter) => (filter ? filter.name : i18n.t('unknown_filter', { filterId })),
+    filterName?: string,
+    dnsRoutingFilters?: Filter[],
 ) => {
+    // If filter name is provided by backend, use it directly
+    if (filterName) {
+        return filterName;
+    }
+
     const specialFilterIds = Object.values(SPECIAL_FILTER_ID);
     if (specialFilterIds.includes(filterId)) {
         return getSpecialFilterName(filterId);
     }
 
     const matchIdPredicate = (filter: Filter) => filter.id === filterId;
-    const filter = filters.find(matchIdPredicate) || whitelistFilters.find(matchIdPredicate);
+    const filter = filters.find(matchIdPredicate) || 
+                   whitelistFilters.find(matchIdPredicate) ||
+                   (dnsRoutingFilters && dnsRoutingFilters.find(matchIdPredicate));
     return resolveFilterName(filter);
 };
 
-export const getFilterNames = (rules: Rule[], filters: Filter[], whitelistFilters: Filter[]) =>
-    rules.map(({ filter_list_id }: any) => getFilterName(filters, whitelistFilters, filter_list_id));
+export const getFilterNames = (rules: Rule[], filters: Filter[], whitelistFilters: Filter[], dnsRoutingFilters?: Filter[]) =>
+    rules.map(({ filter_list_id, filter_name }: any) => getFilterName(filters, whitelistFilters, filter_list_id, undefined, filter_name, dnsRoutingFilters));
 
 export const getRuleNames = (rules: Rule[]) => rules.map(({ text }: Rule) => text);
 
-export const getFilterNameToRulesMap = (rules: Rule[], filters: Filter[], whitelistFilters: Filter[]) =>
-    rules.reduce((acc: any, { text, filter_list_id }: Rule) => {
-        const filterName = getFilterName(filters, whitelistFilters, filter_list_id);
+export const getFilterNameToRulesMap = (rules: Rule[], filters: Filter[], whitelistFilters: Filter[], dnsRoutingFilters?: Filter[]) =>
+    rules.reduce((acc: any, { text, filter_list_id, filter_name }: Rule) => {
+        const filterName = getFilterName(filters, whitelistFilters, filter_list_id, undefined, filter_name, dnsRoutingFilters);
 
         acc[filterName] = (acc[filterName] || []).concat(text);
         return acc;
@@ -904,13 +918,14 @@ export const getRulesToFilterList = (
     rules: Rule[],
     filters: Filter[],
     whitelistFilters: Filter[],
+    dnsRoutingFilters?: Filter[],
     classes = {
         list: 'filteringRules',
         rule: 'filteringRules__rule font-monospace',
         filter: 'filteringRules__filter',
     },
 ) => {
-    const filterNameToRulesMap: { string: string[] } = getFilterNameToRulesMap(rules, filters, whitelistFilters);
+    const filterNameToRulesMap: { string: string[] } = getFilterNameToRulesMap(rules, filters, whitelistFilters, dnsRoutingFilters);
 
     return (
         <dl className={classes.list}>

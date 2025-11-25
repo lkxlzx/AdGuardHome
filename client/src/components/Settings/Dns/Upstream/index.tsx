@@ -1,105 +1,154 @@
-import React, { useState, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
-import { shallowEqual, useDispatch, useSelector } from 'react-redux';
+import React, { Component, Fragment } from 'react';
+import { Trans, withTranslation } from 'react-i18next';
 
-import UpstreamGroups from './UpstreamGroupsTable';
-
+import Table from './UpstreamGroupsTable';
+import Modal from './UpstreamGroupsModal';
 import Card from '../../../ui/Card';
-import { setDnsConfig } from '../../../../actions/dnsConfig';
-import { RootState, UpstreamGroup } from '../../../../initialState';
 
-const Upstream = () => {
-    const { t } = useTranslation();
-    const dispatch = useDispatch();
-    const {
-        upstream_dns,
-        fallback_dns,
-        bootstrap_dns,
-        upstream_mode,
-        resolve_clients,
-        local_ptr_upstreams,
-        use_private_ptr_resolvers,
-        upstream_timeout,
-    } = useSelector((state: RootState) => state.dnsConfig, shallowEqual);
+import { MODAL_TYPE } from '../../../../helpers/constants';
+import { UpstreamGroup } from '../../../../initialState';
 
-    const upstream_dns_file = useSelector((state: RootState) => state.dnsConfig.upstream_dns_file);
-    const upstream_groups = useSelector((state: RootState) => state.dnsConfig.upstream_groups);
+interface UpstreamGroupsProps {
+    t: (...args: unknown[]) => string;
+    groups: UpstreamGroup[];
+    processing: boolean;
+    processingAdd: boolean;
+    processingDelete: boolean;
+    processingUpdate: boolean;
+    onAdd: (group: UpstreamGroup) => void;
+    onUpdate: (target: UpstreamGroup, update: UpstreamGroup) => void;
+    onDelete: (group: UpstreamGroup) => void;
+    onSetDefault: (group: UpstreamGroup) => void;
+}
 
-    // 本地状态管理上游分组
-    const [groups, setGroups] = useState<UpstreamGroup[]>([]);
+interface UpstreamGroupsState {
+    isModalOpen: boolean;
+    modalType: string;
+    currentGroup?: UpstreamGroup;
+}
 
-    useEffect(() => {
-        // 从 Redux 加载分组数据
-        if (upstream_groups && Array.isArray(upstream_groups)) {
-            setGroups(upstream_groups);
+class UpstreamGroups extends Component<UpstreamGroupsProps, UpstreamGroupsState> {
+    state: UpstreamGroupsState = {
+        isModalOpen: false,
+        modalType: MODAL_TYPE.ADD,
+        currentGroup: undefined,
+    };
+
+    toggleModal = (config?: { type?: string; currentGroup?: UpstreamGroup }) => {
+        this.setState((prevState) => ({
+            isModalOpen: !prevState.isModalOpen,
+            modalType: config?.type || MODAL_TYPE.ADD,
+            currentGroup: config?.currentGroup,
+        }));
+    };
+
+    handleDelete = (group: UpstreamGroup) => {
+        const { t, onDelete } = this.props;
+
+        if (group.is_default) {
+            // eslint-disable-next-line no-alert
+            alert(t('upstream_group_cannot_delete_default'));
+            return;
         }
-    }, [upstream_groups]);
 
-    const handleSubmit = (values: any) => {
-        const {
-            fallback_dns,
-            bootstrap_dns,
-            upstream_dns,
-            upstream_mode,
-            resolve_clients,
-            local_ptr_upstreams,
-            use_private_ptr_resolvers,
-            upstream_timeout,
-        } = values;
-
-        const dnsConfig = {
-            fallback_dns,
-            bootstrap_dns,
-            upstream_mode,
-            resolve_clients,
-            local_ptr_upstreams,
-            use_private_ptr_resolvers,
-            upstream_timeout,
-            upstream_groups: groups, // 保存分组数据
-            ...(upstream_dns_file ? null : { upstream_dns }),
-        };
-
-        dispatch(setDnsConfig(dnsConfig));
+        // eslint-disable-next-line no-alert
+        if (window.confirm(t('upstream_group_confirm_delete', { name: group.name }))) {
+            onDelete(group);
+        }
     };
 
-    const handleGroupsChange = (newGroups: UpstreamGroup[]) => {
-        setGroups(newGroups);
-        
-        // 立即保存分组更改
-        const dnsConfig = {
-            fallback_dns,
-            bootstrap_dns,
-            upstream_mode,
-            resolve_clients,
-            local_ptr_upstreams,
-            use_private_ptr_resolvers,
-            upstream_timeout,
-            upstream_groups: newGroups,
-            ...(upstream_dns_file ? null : { upstream_dns }),
-        };
+    handleSubmit = (values: any) => {
+        const { modalType, currentGroup } = this.state;
+        const { onAdd, onUpdate, groups } = this.props;
 
-        dispatch(setDnsConfig(dnsConfig));
+        if (modalType === MODAL_TYPE.EDIT && currentGroup) {
+            const updatedGroup: UpstreamGroup = {
+                ...currentGroup,
+                name: values.name,
+                upstreams: values.upstreams,
+                enabled: values.enabled !== undefined ? values.enabled : true,
+                is_default: values.is_default || false,
+            };
+            onUpdate(currentGroup, updatedGroup);
+        } else {
+            const isFirstGroup = groups.length === 0;
+            const shouldBeDefault = values.is_default || isFirstGroup;
+            
+            const newGroup: UpstreamGroup = {
+                id: `group_${Date.now()}`,
+                name: values.name,
+                upstreams: values.upstreams,
+                enabled: values.enabled !== undefined ? values.enabled : true,
+                is_default: shouldBeDefault,
+            };
+            
+            onAdd(newGroup);
+        }
+
+        this.toggleModal();
     };
 
-    const upstreamDns = upstream_dns_file
-        ? t('upstream_dns_configured_in_file', { path: upstream_dns_file })
-        : upstream_dns;
+    handleSetDefault = (group: UpstreamGroup) => {
+        this.props.onSetDefault(group);
+    };
 
-    const processingSetConfig = useSelector((state: RootState) => state.dnsConfig.processingSetConfig);
+    handleToggleEnabled = (group: UpstreamGroup) => {
+        const { onUpdate } = this.props;
+        const updatedGroup: UpstreamGroup = {
+            ...group,
+            enabled: !group.enabled,
+        };
+        onUpdate(group, updatedGroup);
+    };
 
-    return (
-        <Card title={t('upstream_dns_groups')} bodyType="card-body box-body--settings">
-            <div className="row">
-                <div className="col">
-                    <UpstreamGroups
-                        groups={groups}
-                        onChange={handleGroupsChange}
-                        disabled={processingSetConfig}
-                    />
-                </div>
-            </div>
-        </Card>
-    );
-};
+    render() {
+        const { t, groups, processing, processingAdd, processingDelete, processingUpdate } = this.props;
+        const { isModalOpen, modalType, currentGroup } = this.state;
 
-export default Upstream;
+        return (
+            <Fragment>
+                <Card title={t('upstream_dns_groups')} bodyType="card-body box-body--settings">
+                    <Fragment>
+                        <div className="mb-3">
+                            <p className="form__desc">{t('upstream_groups_desc')}</p>
+                        </div>
+
+                        <Table
+                            list={groups}
+                            processing={processing}
+                            processingAdd={processingAdd}
+                            processingDelete={processingDelete}
+                            processingUpdate={processingUpdate}
+                            handleDelete={this.handleDelete}
+                            toggleModal={this.toggleModal}
+                            toggleDefault={this.handleSetDefault}
+                            toggleEnabled={this.handleToggleEnabled}
+                        />
+
+                        <div className="card-actions">
+                            <button
+                                data-testid="add-upstream-group"
+                                type="button"
+                                className="btn btn-success btn-standard"
+                                onClick={() => this.toggleModal({ type: MODAL_TYPE.ADD })}
+                                disabled={processingAdd}>
+                                <Trans>upstream_group_add</Trans>
+                            </button>
+                        </div>
+
+                        <Modal
+                            isOpen={isModalOpen}
+                            modalType={modalType}
+                            toggleModal={this.toggleModal}
+                            handleSubmit={this.handleSubmit}
+                            processing={processingAdd || processingUpdate}
+                            currentGroup={currentGroup}
+                        />
+                    </Fragment>
+                </Card>
+            </Fragment>
+        );
+    }
+}
+
+export default withTranslation()(UpstreamGroups);

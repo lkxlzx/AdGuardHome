@@ -26,8 +26,15 @@ const dnsConfig = handleActions(
                 bootstrap_dns,
                 local_ptr_upstreams,
                 ratelimit_whitelist,
+                upstream_groups,
                 ...values
             } = payload;
+
+            // Convert upstream_groups upstreams from array to string for display
+            const processedGroups = upstream_groups?.map((group: any) => ({
+                ...group,
+                upstreams: Array.isArray(group.upstreams) ? group.upstreams.join('\n') : group.upstreams,
+            })) || [];
 
             return {
                 ...state,
@@ -39,6 +46,7 @@ const dnsConfig = handleActions(
                 bootstrap_dns: (bootstrap_dns && bootstrap_dns.join('\n')) || '',
                 local_ptr_upstreams: (local_ptr_upstreams && local_ptr_upstreams.join('\n')) || '',
                 ratelimit_whitelist: (ratelimit_whitelist && ratelimit_whitelist.join('\n')) || '',
+                upstream_groups: processedGroups,
                 processingGetConfig: false,
                 upstream_mode: upstream_mode === '' ? DNS_REQUEST_OPTIONS.LOAD_BALANCING : upstream_mode,
             };
@@ -52,11 +60,41 @@ const dnsConfig = handleActions(
             ...state,
             processingSetConfig: false,
         }),
-        [actions.setDnsConfigSuccess.toString()]: (state, { payload }: any) => ({
-            ...state,
-            ...payload,
-            processingSetConfig: false,
-        }),
+        [actions.setDnsConfigSuccess.toString()]: (state, { payload }: any) => {
+            const {
+                blocking_ipv4,
+                blocking_ipv6,
+                upstream_dns,
+                upstream_mode,
+                fallback_dns,
+                bootstrap_dns,
+                local_ptr_upstreams,
+                ratelimit_whitelist,
+                upstream_groups,
+                ...values
+            } = payload;
+
+            // Convert upstream_groups upstreams from array to string for display
+            const processedGroups = upstream_groups?.map((group: any) => ({
+                ...group,
+                upstreams: Array.isArray(group.upstreams) ? group.upstreams.join('\n') : group.upstreams,
+            }));
+
+            return {
+                ...state,
+                ...values,
+                blocking_ipv4: blocking_ipv4 || state.blocking_ipv4,
+                blocking_ipv6: blocking_ipv6 || state.blocking_ipv6,
+                upstream_dns: (upstream_dns && upstream_dns.join('\n')) || state.upstream_dns,
+                fallback_dns: (fallback_dns && fallback_dns.join('\n')) || state.fallback_dns,
+                bootstrap_dns: (bootstrap_dns && bootstrap_dns.join('\n')) || state.bootstrap_dns,
+                local_ptr_upstreams: (local_ptr_upstreams && local_ptr_upstreams.join('\n')) || state.local_ptr_upstreams,
+                ratelimit_whitelist: (ratelimit_whitelist && ratelimit_whitelist.join('\n')) || state.ratelimit_whitelist,
+                upstream_groups: processedGroups !== undefined ? processedGroups : state.upstream_groups,
+                processingSetConfig: false,
+                upstream_mode: upstream_mode === '' ? DNS_REQUEST_OPTIONS.LOAD_BALANCING : (upstream_mode || state.upstream_mode),
+            };
+        },
     },
     {
         processingGetConfig: false,
@@ -71,6 +109,7 @@ const dnsConfig = handleActions(
         disable_ipv6: false,
         dnssec_enabled: false,
         upstream_dns_file: '',
+        upstream_groups: [],
     },
 );
 

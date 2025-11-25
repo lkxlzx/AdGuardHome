@@ -128,6 +128,8 @@ export const MODAL_TYPE = {
     ADD_LEASE: 'ADD_LEASE',
     ADD_CLIENT: 'ADD_CLIENT',
     EDIT_CLIENT: 'EDIT_CLIENT',
+    ADD: 'ADD',
+    EDIT: 'EDIT',
 };
 
 export const CLIENT_ID = {
@@ -150,6 +152,7 @@ export const SETTINGS_URLS = {
 };
 
 export const FILTERS_URLS = {
+    dns_routing: '/dns_routing',
     dns_blocklists: '/filters',
     dns_allowlists: '/dns_allowlists',
     dns_rewrites: '/dns_rewrites',
@@ -222,6 +225,7 @@ export const LEASES_TABLE_DEFAULT_PAGE_SIZE = 20;
 export const FILTERED_STATUS = {
     FILTERED_BLACK_LIST: 'FilteredBlackList',
     NOT_FILTERED_WHITE_LIST: 'NotFilteredWhiteList',
+    NOT_FILTERED_DNS_ROUTING: 'NotFilteredDNSRouting',
     NOT_FILTERED_NOT_FOUND: 'NotFilteredNotFound',
     FILTERED_BLOCKED_SERVICE: 'FilteredBlockedService',
     REWRITE: 'Rewrite',
@@ -265,6 +269,10 @@ export const RESPONSE_FILTER = {
         QUERY: 'whitelisted',
         LABEL: 'allowed',
     },
+    DNS_ROUTING: {
+        QUERY: 'dns_routing',
+        LABEL: 'dns_routing',
+    },
     REWRITTEN: {
         QUERY: 'rewritten',
         LABEL: 'rewritten',
@@ -302,6 +310,10 @@ export const FILTERED_STATUS_TO_META_MAP = {
     [FILTERED_STATUS.NOT_FILTERED_WHITE_LIST]: {
         LABEL: RESPONSE_FILTER.ALLOWED.LABEL,
         COLOR: QUERY_STATUS_COLORS.GREEN,
+    },
+    [FILTERED_STATUS.NOT_FILTERED_DNS_ROUTING]: {
+        LABEL: RESPONSE_FILTER.DNS_ROUTING.LABEL,
+        COLOR: QUERY_STATUS_COLORS.BLUE,
     },
     [FILTERED_STATUS.NOT_FILTERED_NOT_FOUND]: {
         LABEL: RESPONSE_FILTER.PROCESSED.LABEL,

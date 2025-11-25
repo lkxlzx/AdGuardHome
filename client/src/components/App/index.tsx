@@ -36,6 +36,7 @@ import Encryption from '../../containers/Encryption';
 
 import Dhcp from '../Settings/Dhcp';
 import Clients from '../../containers/Clients';
+import DnsRouting from '../../containers/DnsRouting';
 import DnsBlocklist from '../../containers/DnsBlocklist';
 import DnsAllowlist from '../../containers/DnsAllowlist';
 import DnsRewrites from '../../containers/DnsRewrites';
@@ -80,6 +81,10 @@ const ROUTES = [
     {
         path: SETTINGS_URLS.clients,
         component: Clients,
+    },
+    {
+        path: FILTERS_URLS.dns_routing,
+        component: DnsRouting,
     },
     {
         path: FILTERS_URLS.dns_blocklists,

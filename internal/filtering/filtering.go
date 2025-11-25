@@ -147,6 +147,9 @@ type Config struct {
 	// WhitelistFilters are the allowing filter lists.
 	WhitelistFilters []FilterYAML `yaml:"-"`
 
+	// DnsRoutingFilters are the DNS routing filter lists with upstream groups.
+	DnsRoutingFilters []FilterYAML `yaml:"-"`
+
 	// UserRules is the global list of custom rules.
 	UserRules []string `yaml:"-"`
 
@@ -308,6 +311,10 @@ type Filter struct {
 
 	// ID is automatically assigned when filter is added.
 	ID rules.ListID `yaml:"id"`
+
+	// UpstreamGroup is the upstream group ID for DNS routing rules.
+	// Only used for whitelist filters that serve as routing rules.
+	UpstreamGroup string `yaml:"upstream_group,omitempty"`
 }
 
 // SetEnabled sets the status of the *DNSFilter.
@@ -343,6 +350,7 @@ func (d *DNSFilter) WriteDiskConfig(c *Config) {
 
 	c.Filters = slices.Clone(d.conf.Filters)
 	c.WhitelistFilters = slices.Clone(d.conf.WhitelistFilters)
+	c.DnsRoutingFilters = slices.Clone(d.conf.DnsRoutingFilters)
 	c.UserRules = slices.Clone(d.conf.UserRules)
 }
 
@@ -812,7 +820,31 @@ func (d *DNSFilter) matchHostProcessAllowList(
 		"rules", matchedRules,
 	)
 
-	return makeResult(matchedRules, NotFilteredAllowList), nil
+	// Get upstream group for DNS routing
+	var upstreamGroup string
+	if len(matchedRules) > 0 {
+		filterID := matchedRules[0].GetFilterListID()
+		upstreamGroup = d.getUpstreamGroupByFilterID(filterID)
+		if upstreamGroup != "" {
+			d.logger.DebugContext(
+				ctx,
+				"dns routing upstream group found",
+				"filter_id", filterID,
+				"upstream_group", upstreamGroup,
+			)
+		}
+	}
+	
+	// Use different reason for DNS routing rules
+	reason := NotFilteredAllowList
+	if upstreamGroup != "" {
+		reason = NotFilteredDNSRouting
+	}
+	
+	res = makeResult(matchedRules, reason)
+	res.UpstreamGroup = upstreamGroup
+	
+	return res, nil
 }
 
 // matchHostProcessDNSResult processes the matched DNS filtering result.
@@ -956,6 +988,58 @@ func makeResult(matchedRules []rules.Rule, reason Reason) (res Result) {
 	}
 }
 
+// getUpstreamGroupByFilterID returns the upstream group ID for a given filter ID.
+// It searches in DnsRoutingFilters for a filter with the matching ID.
+func (d *DNSFilter) getUpstreamGroupByFilterID(filterID rules.ListID) string {
+	d.conf.filtersMu.RLock()
+	defer d.conf.filtersMu.RUnlock()
+
+	// Search in DNS routing filters
+	for _, filter := range d.conf.DnsRoutingFilters {
+		if filter.ID == filterID {
+			return filter.UpstreamGroup
+		}
+	}
+
+	return ""
+}
+
+// GetFilterName returns the filter name by its ID.
+// It searches in all filter lists (Filters, WhitelistFilters, DnsRoutingFilters).
+func (d *DNSFilter) GetFilterName(filterID int64) (name string) {
+	d.conf.filtersMu.RLock()
+	defer d.conf.filtersMu.RUnlock()
+
+	id := rules.ListID(filterID)
+
+	// Search in block filters
+	for _, filter := range d.conf.Filters {
+		if filter.ID == id {
+			d.logger.DebugContext(context.TODO(), "found filter name in block filters", "id", filterID, "name", filter.Name)
+			return filter.Name
+		}
+	}
+
+	// Search in whitelist filters
+	for _, filter := range d.conf.WhitelistFilters {
+		if filter.ID == id {
+			d.logger.DebugContext(context.TODO(), "found filter name in whitelist filters", "id", filterID, "name", filter.Name)
+			return filter.Name
+		}
+	}
+
+	// Search in DNS routing filters
+	for _, filter := range d.conf.DnsRoutingFilters {
+		if filter.ID == id {
+			d.logger.DebugContext(context.TODO(), "found filter name in dns routing filters", "id", filterID, "name", filter.Name)
+			return filter.Name
+		}
+	}
+
+	d.logger.DebugContext(context.TODO(), "filter name not found", "id", filterID)
+	return ""
+}
+
 // InitModule manually initializes blocked services map.  l must not be nil.
 func InitModule(ctx context.Context, l *slog.Logger) {
 	initBlockedServices(ctx, l)
@@ -1040,6 +1124,7 @@ func New(c *Config, blockFilters []Filter) (d *DNSFilter, err error) {
 
 	d.loadFilters(ctx, d.conf.Filters)
 	d.loadFilters(ctx, d.conf.WhitelistFilters)
+	d.loadFilters(ctx, d.conf.DnsRoutingFilters)
 
 	d.conf.Filters = deduplicateFilters(d.conf.Filters)
 	d.conf.WhitelistFilters = deduplicateFilters(d.conf.WhitelistFilters)

@@ -496,6 +496,22 @@ func (s *Server) processUpstream(ctx context.Context, dctx *dnsContext) (rc resu
 
 	s.setCustomUpstream(ctx, pctx, dctx.clientID)
 
+	// DNS routing priority:
+	// 1. Custom domain rules (highest priority)
+	// 2. URL-based filtering rules (from dns_routing_filters)
+	// 3. Client-based custom upstreams (already set above)
+	
+	// Check custom domain rules first
+	if len(req.Question) > 0 {
+		domain := req.Question[0].Name
+		if groupID := s.matchCustomDomainRule(domain); groupID != "" {
+			s.setDNSRoutingUpstream(ctx, pctx, groupID)
+		} else if dctx.result != nil && dctx.result.UpstreamGroup != "" {
+			// Fall back to filtering result if no custom rule matched
+			s.setDNSRoutingUpstream(ctx, pctx, dctx.result.UpstreamGroup)
+		}
+	}
+
 	reqWantsDNSSEC := s.setReqAD(req)
 
 	// Process the request further since it wasn't filtered.
@@ -585,6 +601,7 @@ func (s *Server) dhcpHostFromRequest(q *dns.Question) (reqHost string) {
 
 // setCustomUpstream sets custom upstream settings in pctx, if necessary.
 func (s *Server) setCustomUpstream(ctx context.Context, pctx *proxy.DNSContext, clientID string) {
+	// Fall back to client-based custom upstreams
 	if !pctx.Addr.IsValid() || s.conf.ClientsContainer == nil {
 		return
 	}
@@ -599,6 +616,78 @@ func (s *Server) setCustomUpstream(ctx context.Context, pctx *proxy.DNSContext, 
 			"client_id", clientID,
 		)
 
+		pctx.CustomUpstreamConfig = upsConf
+	}
+}
+
+// matchCustomDomainRule checks if the domain matches any custom domain rules.
+// Returns the upstream group ID if matched, empty string otherwise.
+func (s *Server) matchCustomDomainRule(domain string) string {
+	s.serverLock.RLock()
+	defer s.serverLock.RUnlock()
+
+	// Remove trailing dot from FQDN
+	domain = strings.TrimSuffix(domain, ".")
+	domain = strings.ToLower(domain)
+
+	for _, rule := range s.conf.CustomDomainRules {
+		// Skip disabled rules
+		if !rule.Enabled {
+			continue
+		}
+		
+		if s.matchDomainPattern(domain, rule.Domain, rule.MatchType) {
+			return rule.UpstreamGroup
+		}
+	}
+
+	return ""
+}
+
+// matchDomainPattern checks if a domain matches a pattern with the given match type.
+func (s *Server) matchDomainPattern(domain, pattern, matchType string) bool {
+	pattern = strings.ToLower(pattern)
+
+	switch matchType {
+	case "DOMAIN":
+		// Exact match
+		return domain == pattern
+
+	case "DOMAIN-SUFFIX":
+		// Suffix match (including exact match)
+		return domain == pattern || strings.HasSuffix(domain, "."+pattern)
+
+	case "DOMAIN-KEYWORD":
+		// Keyword match
+		return strings.Contains(domain, pattern)
+
+	default:
+		// Default to exact match
+		return domain == pattern
+	}
+}
+
+// setDNSRoutingUpstream sets upstream from DNS routing rules.
+func (s *Server) setDNSRoutingUpstream(ctx context.Context, pctx *proxy.DNSContext, groupID string) {
+	upstreamGroup := s.getUpstreamGroupByID(groupID)
+	if upstreamGroup == nil || !upstreamGroup.Enabled {
+		s.logger.DebugContext(
+			ctx,
+			"dns routing upstream group not found or disabled",
+			"group_id", groupID,
+		)
+		return
+	}
+
+	s.logger.DebugContext(
+		ctx,
+		"using dns routing upstream group",
+		"group_id", groupID,
+		"group_name", upstreamGroup.Name,
+	)
+
+	upsConf := s.createUpstreamConfigFromGroup(upstreamGroup)
+	if upsConf != nil {
 		pctx.CustomUpstreamConfig = upsConf
 	}
 }

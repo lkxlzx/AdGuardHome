@@ -551,11 +551,75 @@ func (s *Server) Prepare(ctx context.Context, conf *ServerConfig) (err error) {
 
 // prepareUpstreamSettings sets upstream DNS server settings.
 func (s *Server) prepareUpstreamSettings(ctx context.Context, boot upstream.Resolver) (err error) {
-	// Load upstreams either from the file, or from the settings
+	// Load upstreams either from the default group, file, or from the settings
 	var upstreams []string
-	upstreams, err = s.conf.loadUpstreams(ctx, s.logger)
-	if err != nil {
-		return fmt.Errorf("loading upstreams: %w", err)
+	
+	// First, try to use the default upstream group
+	// Note: Don't call GetDefaultUpstreamGroup() here as it would cause a deadlock
+	// (Reconfigure already holds the write lock). Access s.conf directly instead.
+	var defaultGroup *UpstreamGroup
+	for i := range s.conf.UpstreamGroups {
+		if s.conf.UpstreamGroups[i].IsDefault && s.conf.UpstreamGroups[i].Enabled {
+			defaultGroup = &s.conf.UpstreamGroups[i]
+			break
+		}
+	}
+	
+	if defaultGroup != nil && len(defaultGroup.Upstreams) > 0 {
+		// Use the default group's upstreams
+		for _, u := range defaultGroup.Upstreams {
+			u = strings.TrimSpace(u)
+			if u != "" && !strings.HasPrefix(u, "#") {
+				upstreams = append(upstreams, u)
+			}
+		}
+		s.logger.InfoContext(ctx, "using default upstream group", "group", defaultGroup.Name, "upstreams", len(upstreams))
+	} else {
+		// Fallback to the original upstream_dns configuration
+		upstreams, err = s.conf.loadUpstreams(ctx, s.logger)
+		if err != nil {
+			return fmt.Errorf("loading upstreams: %w", err)
+		}
+	}
+
+	// Add custom domain rules in [/domain/]upstream format
+	for _, rule := range s.conf.CustomDomainRules {
+		// Skip disabled rules
+		if !rule.Enabled {
+			continue
+		}
+		
+		// Get upstreams for this rule's group
+		var groupUpstreams []string
+		for i := range s.conf.UpstreamGroups {
+			if s.conf.UpstreamGroups[i].ID == rule.UpstreamGroup && s.conf.UpstreamGroups[i].Enabled {
+				for _, u := range s.conf.UpstreamGroups[i].Upstreams {
+					u = strings.TrimSpace(u)
+					if u != "" && !strings.HasPrefix(u, "#") {
+						groupUpstreams = append(groupUpstreams, u)
+					}
+				}
+				break
+			}
+		}
+
+		if len(groupUpstreams) == 0 {
+			s.logger.WarnContext(ctx, "no upstreams found for custom rule", "domain", rule.Domain, "group", rule.UpstreamGroup)
+			continue
+		}
+
+		// Convert to [/domain/]upstream format
+		domain := strings.ToLower(strings.TrimSpace(rule.Domain))
+		if domain == "" {
+			continue
+		}
+
+		// Join all upstreams for this domain
+		upstreamList := strings.Join(groupUpstreams, " ")
+		domainUpstream := fmt.Sprintf("[/%s/]%s", domain, upstreamList)
+		upstreams = append(upstreams, domainUpstream)
+		
+		s.logger.InfoContext(ctx, "added custom domain rule", "domain", domain, "upstream", domainUpstream)
 	}
 
 	uc, err := newUpstreamConfig(ctx, s.logger, upstreams, defaultDNS, &upstream.Options{

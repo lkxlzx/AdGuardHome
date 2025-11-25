@@ -47,6 +47,7 @@ class DnsAllowlist extends Component<DnsAllowlistProps> {
         const whitelist = true;
 
         if (filtering.modalType === MODAL_TYPE.EDIT_FILTERS) {
+            // Preserve all fields including upstream_group if it exists
             this.props.editFilter(filtering.modalFilterUrl, values, whitelist);
         } else {
             this.props.addFilter(url, name, whitelist);

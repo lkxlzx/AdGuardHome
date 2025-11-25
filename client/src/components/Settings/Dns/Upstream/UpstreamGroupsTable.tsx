@@ -1,290 +1,178 @@
-import React, { useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { Controller, useForm } from 'react-hook-form';
-import { Input } from '../../../ui/Controls/Input';
-import { Textarea } from '../../../ui/Controls/Textarea';
-import { Checkbox } from '../../../ui/Controls/Checkbox';
+import React, { Component } from 'react';
+
+// @ts-expect-error FIXME: update react-table
+import ReactTable from 'react-table';
+import { withTranslation } from 'react-i18next';
+
+import { MODAL_TYPE, TABLES_MIN_ROWS } from '../../../../helpers/constants';
+import { LocalStorageHelper, LOCAL_STORAGE_KEYS } from '../../../../helpers/localStorageHelper';
 import { UpstreamGroup } from '../../../../initialState';
 
-interface UpstreamGroupsProps {
-    groups: UpstreamGroup[];
-    onChange: (groups: UpstreamGroup[]) => void;
-    disabled?: boolean;
+interface TableProps {
+    t: (...args: unknown[]) => string;
+    list: UpstreamGroup[];
+    processing: boolean;
+    processingAdd: boolean;
+    processingDelete: boolean;
+    processingUpdate: boolean;
+    handleDelete: (group: UpstreamGroup) => void;
+    toggleModal: (config: { type: string; currentGroup?: UpstreamGroup }) => void;
+    toggleDefault: (group: UpstreamGroup) => void;
+    toggleEnabled: (group: UpstreamGroup) => void;
 }
 
-const UpstreamGroups: React.FC<UpstreamGroupsProps> = ({ groups, onChange, disabled }) => {
-    const { t } = useTranslation();
-    const [editingId, setEditingId] = useState<string | null>(null);
-    const [isAdding, setIsAdding] = useState(false);
-
-    const { control, handleSubmit, reset } = useForm<{ name: string; upstreams: string }>({
-        defaultValues: { name: '', upstreams: '' },
-    });
-
-    const handleAdd = () => {
-        setIsAdding(true);
-        reset({ name: '', upstreams: '' });
-    };
-
-    const handleEdit = (group: UpstreamGroup) => {
-        setEditingId(group.id);
-        reset({ name: group.name, upstreams: group.upstreams });
-    };
-
-    const handleSave = (data: { name: string; upstreams: string }) => {
-        if (!data.name.trim() || !data.upstreams.trim()) {
-            return;
-        }
-
-        if (isAdding) {
-            const isFirstGroup = groups.length === 0;
-            const newGroup: UpstreamGroup = {
-                id: `group_${Date.now()}`,
-                name: data.name.trim(),
-                upstreams: data.upstreams.trim(),
-                isDefault: isFirstGroup,
-            };
-            onChange([...groups, newGroup]);
-            setIsAdding(false);
-        } else if (editingId) {
-            const updatedGroups = groups.map((g) =>
-                g.id === editingId ? { ...g, name: data.name.trim(), upstreams: data.upstreams.trim() } : g
-            );
-            onChange(updatedGroups);
-            setEditingId(null);
-        }
-
-        reset({ name: '', upstreams: '' });
-    };
-
-    const handleCancel = () => {
-        setIsAdding(false);
-        setEditingId(null);
-        reset({ name: '', upstreams: '' });
-    };
-
-    const handleDelete = (id: string) => {
-        const group = groups.find((g) => g.id === id);
-        if (group?.isDefault) {
-            alert(t('upstream_group_cannot_delete_default'));
-            return;
-        }
-        if (window.confirm(t('upstream_group_confirm_delete'))) {
-            const remainingGroups = groups.filter((g) => g.id !== id);
-
-            const hasDefault = remainingGroups.some((g) => g.isDefault);
-            if (!hasDefault && remainingGroups.length > 0) {
-                remainingGroups[0].isDefault = true;
-            }
-
-            onChange(remainingGroups);
-        }
-    };
-
-    const handleSetDefault = (id: string) => {
-        const updatedGroups = groups.map((g) => ({
-            ...g,
-            isDefault: g.id === id,
-        }));
-        onChange(updatedGroups);
-    };
-
-    return (
-        <div className="upstream-groups-table">
-            <div className="mb-3">
-                <p className="form__desc">{t('upstream_groups_desc')}</p>
-            </div>
-
-            <div className="table-responsive">
-                <table className="table table-hover">
-                    <thead>
-                        <tr>
-                            <th style={{ width: '80px' }}>{t('enabled')}</th>
-                            <th style={{ width: '200px' }}>{t('upstream_group_name')}</th>
-                            <th>{t('upstream_group_servers_short')}</th>
-                            <th style={{ width: '150px' }}>{t('actions')}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {groups.length === 0 && !isAdding && (
-                            <tr>
-                                <td colSpan={4} className="text-center text-muted py-4">
-                                    {t('upstream_groups_empty_table')}
-                                </td>
-                            </tr>
-                        )}
-
-                        {groups.map((group) =>
-                            editingId === group.id ? (
-                                <tr key={group.id} className="editing-row">
-                                    <td colSpan={4}>
-                                        <form onSubmit={handleSubmit(handleSave)} className="p-3">
-                                            <div className="row">
-                                                <div className="col-md-3 mb-3">
-                                                    <label>{t('upstream_group_name')}</label>
-                                                    <Controller
-                                                        name="name"
-                                                        control={control}
-                                                        rules={{ required: true }}
-                                                        render={({ field }) => (
-                                                            <Input
-                                                                {...field}
-                                                                placeholder={t('upstream_group_name_placeholder')}
-                                                                disabled={disabled}
-                                                            />
-                                                        )}
-                                                    />
-                                                </div>
-                                                <div className="col-md-9 mb-3">
-                                                    <label>{t('upstream_group_servers')}</label>
-                                                    <Controller
-                                                        name="upstreams"
-                                                        control={control}
-                                                        rules={{ required: true }}
-                                                        render={({ field }) => (
-                                                            <Textarea
-                                                                {...field}
-                                                                placeholder={t('upstream_group_servers_placeholder')}
-                                                                disabled={disabled}
-                                                                rows={2}
-                                                            />
-                                                        )}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="d-flex gap-2">
-                                                <button type="submit" className="btn btn-success btn-sm" disabled={disabled}>
-                                                    {t('save')}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    className="btn btn-secondary btn-sm"
-                                                    onClick={handleCancel}
-                                                    disabled={disabled}>
-                                                    {t('cancel')}
-                                                </button>
-                                            </div>
-                                        </form>
-                                    </td>
-                                </tr>
-                            ) : (
-                                <tr key={group.id} className={group.isDefault ? 'table-warning' : ''}>
-                                    <td>
-                                        <div className="form-check">
-                                            <input
-                                                type="radio"
-                                                className="form-check-input"
-                                                checked={group.isDefault || false}
-                                                onChange={() => handleSetDefault(group.id)}
-                                                disabled={disabled}
-                                            />
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <strong>{group.name}</strong>
-                                        {group.isDefault && (
-                                            <span className="badge bg-primary ms-2">{t('default_group')}</span>
-                                        )}
-                                    </td>
-                                    <td>
-                                        <small className="text-muted">{group.upstreams.split('\n').join(', ')}</small>
-                                    </td>
-                                    <td>
-                                        <div className="btn-group btn-group-sm">
-                                            <button
-                                                type="button"
-                                                className="btn btn-outline-primary"
-                                                onClick={() => handleEdit(group)}
-                                                disabled={disabled || isAdding || editingId !== null}>
-                                                {t('edit')}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="btn btn-outline-danger"
-                                                onClick={() => handleDelete(group.id)}
-                                                disabled={disabled || isAdding || editingId !== null || group.isDefault}>
-                                                {t('delete')}
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            )
-                        )}
-
-                        {isAdding && (
-                            <tr className="editing-row">
-                                <td colSpan={4}>
-                                    <form onSubmit={handleSubmit(handleSave)} className="p-3 bg-light">
-                                        <div className="row">
-                                            <div className="col-md-3 mb-3">
-                                                <label>{t('upstream_group_name')}</label>
-                                                <Controller
-                                                    name="name"
-                                                    control={control}
-                                                    rules={{ required: true }}
-                                                    render={({ field }) => (
-                                                        <Input
-                                                            {...field}
-                                                            placeholder={t('upstream_group_name_placeholder')}
-                                                            disabled={disabled}
-                                                        />
-                                                    )}
-                                                />
-                                            </div>
-                                            <div className="col-md-9 mb-3">
-                                                <label>{t('upstream_group_servers')}</label>
-                                                <Controller
-                                                    name="upstreams"
-                                                    control={control}
-                                                    rules={{ required: true }}
-                                                    render={({ field }) => (
-                                                        <Textarea
-                                                            {...field}
-                                                            placeholder={t('upstream_group_servers_placeholder')}
-                                                            disabled={disabled}
-                                                            rows={2}
-                                                        />
-                                                    )}
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="d-flex gap-2">
-                                            <button type="submit" className="btn btn-success btn-sm" disabled={disabled}>
-                                                {t('add')}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="btn btn-secondary btn-sm"
-                                                onClick={handleCancel}
-                                                disabled={disabled}>
-                                                {t('cancel')}
-                                            </button>
-                                        </div>
-                                    </form>
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
-            </div>
-
-            <div className="mt-3">
-                <button
-                    type="button"
-                    className="btn btn-success btn-sm"
-                    onClick={handleAdd}
-                    disabled={disabled || isAdding || editingId !== null}>
-                    {t('upstream_group_add')}
-                </button>
-                <button
-                    type="button"
-                    className="btn btn-primary btn-sm ms-2"
-                    disabled={disabled}>
-                    {t('upstream_group_import')}
-                </button>
-            </div>
+class Table extends Component<TableProps> {
+    cellWrap = ({ value }: any) => (
+        <div className="logs__row o-hidden">
+            <span className="logs__text" title={value}>
+                {value}
+            </span>
         </div>
     );
-};
 
-export default UpstreamGroups;
+    renderCheckbox = ({ original }: any) => {
+        const { processing, toggleEnabled } = this.props;
+
+        return (
+            <label className="checkbox">
+                <input
+                    data-testid="group-enabled"
+                    type="checkbox"
+                    className="checkbox__input"
+                    onChange={() => toggleEnabled(original)}
+                    checked={original.enabled || false}
+                    disabled={processing}
+                />
+
+                <span className="checkbox__label" />
+            </label>
+        );
+    };
+
+    columns = [
+        {
+            Header: this.props.t('enabled_table_header'),
+            accessor: 'enabled',
+            Cell: this.renderCheckbox,
+            width: 90,
+            className: 'text-center',
+            resizable: false,
+            sortable: false,
+        },
+        {
+            Header: this.props.t('upstream_group_name'),
+            accessor: 'name',
+            Cell: ({ value, original }: any) => (
+                <div className="logs__row o-hidden">
+                    <span className="logs__text" title={value}>
+                        {value}
+                        {original.is_default && (
+                            <span className="badge badge-success ml-2">{this.props.t('default_group')}</span>
+                        )}
+                    </span>
+                </div>
+            ),
+        },
+        {
+            Header: this.props.t('upstream_group_servers_short'),
+            accessor: 'upstreams',
+            Cell: ({ value }: any) => {
+                // Handle both string and array formats
+                const servers = Array.isArray(value) 
+                    ? value 
+                    : (typeof value === 'string' ? value.split('\n').filter((s: string) => s.trim()) : []);
+                const displayText = servers.join(', ');
+                return (
+                    <div className="logs__row o-hidden">
+                        <span className="logs__text text-muted" title={displayText}>
+                            {displayText}
+                        </span>
+                    </div>
+                );
+            },
+        },
+        {
+            Header: this.props.t('actions_table_header'),
+            accessor: 'actions',
+            maxWidth: 150,
+            sortable: false,
+            resizable: false,
+            Cell: (row: any) => {
+                const { original } = row;
+
+                return (
+                    <div className="logs__row logs__row--center">
+                        <button
+                            data-testid="set-default-group"
+                            type="button"
+                            className="btn btn-icon btn-outline-success btn-sm mr-2"
+                            onClick={() => this.props.toggleDefault(original)}
+                            disabled={original.is_default || this.props.processing}
+                            title={this.props.t('set_as_default')}>
+                            <svg className="icons icon12">
+                                <use xlinkHref="#check" />
+                            </svg>
+                        </button>
+
+                        <button
+                            data-testid="edit-group"
+                            type="button"
+                            className="btn btn-icon btn-outline-primary btn-sm mr-2"
+                            onClick={() => {
+                                this.props.toggleModal({
+                                    type: MODAL_TYPE.EDIT,
+                                    currentGroup: original,
+                                });
+                            }}
+                            disabled={this.props.processingUpdate}
+                            title={this.props.t('edit_table_action')}>
+                            <svg className="icons icon12">
+                                <use xlinkHref="#edit" />
+                            </svg>
+                        </button>
+
+                        <button
+                            data-testid="delete-group"
+                            type="button"
+                            className="btn btn-icon btn-outline-secondary btn-sm"
+                            onClick={() => this.props.handleDelete(original)}
+                            disabled={original.is_default}
+                            title={this.props.t('delete_table_action')}>
+                            <svg className="icons">
+                                <use xlinkHref="#delete" />
+                            </svg>
+                        </button>
+                    </div>
+                );
+            },
+        },
+    ];
+
+    render() {
+        const { t, list, processing, processingAdd, processingDelete } = this.props;
+
+        return (
+            <ReactTable
+                data={list || []}
+                columns={this.columns}
+                loading={processing || processingAdd || processingDelete}
+                className="-striped -highlight card-table-overflow"
+                showPagination
+                defaultPageSize={LocalStorageHelper.getItem(LOCAL_STORAGE_KEYS.UPSTREAM_GROUPS_PAGE_SIZE) || 10}
+                onPageSizeChange={(size: any) =>
+                    LocalStorageHelper.setItem(LOCAL_STORAGE_KEYS.UPSTREAM_GROUPS_PAGE_SIZE, size)
+                }
+                minRows={TABLES_MIN_ROWS}
+                ofText="/"
+                previousText={t('previous_btn')}
+                nextText={t('next_btn')}
+                pageText={t('page_table_footer_text')}
+                rowsText={t('rows_table_footer_text')}
+                loadingText={t('loading_table_status')}
+                noDataText={t('upstream_groups_empty_table')}
+            />
+        );
+    }
+}
+
+export default withTranslation()(Table);

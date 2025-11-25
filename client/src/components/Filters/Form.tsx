@@ -1,23 +1,27 @@
 import React from 'react';
 import { useForm, Controller, FormProvider } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
+import { useSelector } from 'react-redux';
 import { validatePath, validateRequiredValue } from '../../helpers/validators';
 
 import { MODAL_OPEN_TIMEOUT, MODAL_TYPE } from '../../helpers/constants';
 import filtersCatalog from '../../helpers/filters/filters';
 import { FiltersList } from './FiltersList';
 import { Input } from '../ui/Controls/Input';
+import { RootState } from '../../initialState';
 
 type FormValues = {
     enabled: boolean;
     name: string;
     url: string;
+    upstreamGroup?: string;
 };
 
 const defaultValues: FormValues = {
     enabled: true,
     name: '',
     url: '',
+    upstreamGroup: '',
 };
 
 type Props = {
@@ -30,6 +34,7 @@ type Props = {
     toggleFilteringModal: ({ type }: { type?: keyof typeof MODAL_TYPE }) => void;
     selectedSources?: Record<string, boolean>;
     initialValues?: FormValues;
+    isRoutingRule?: boolean;
 };
 
 export const Form = ({
@@ -42,8 +47,12 @@ export const Form = ({
     selectedSources,
     onSubmit,
     initialValues,
+    isRoutingRule,
 }: Props) => {
     const { t } = useTranslation();
+
+    // Get upstream groups from Redux state
+    const upstreamGroups = useSelector((state: RootState) => state.dnsConfig.upstream_groups || []);
 
     const methods = useForm({
         defaultValues: {
@@ -125,8 +134,49 @@ export const Form = ({
                             </div>
 
                             <div className="form__description">
-                                {whitelist ? t('enter_valid_allowlist') : t('enter_valid_blocklist')}
+                                {isRoutingRule ? t('enter_valid_routing_rule_url') : (whitelist ? t('enter_valid_allowlist') : t('enter_valid_blocklist'))}
                             </div>
+
+                            {isRoutingRule && (
+                                <div className="form__group">
+                                    <label className="form__label" htmlFor="upstreamGroup">
+                                        {t('routing_rule_group')}
+                                    </label>
+                                    <Controller
+                                        name="upstreamGroup"
+                                        control={control}
+                                        rules={{ required: t('form_error_required') }}
+                                        render={({ field, fieldState }) => (
+                                            <>
+                                                <select
+                                                    {...field}
+                                                    id="upstreamGroup"
+                                                    className={`form-control ${fieldState.error ? 'is-invalid' : ''}`}
+                                                    disabled={processingAddFilter || processingConfigFilter}>
+                                                    <option value="">
+                                                        {t('custom_rule_select_group')}
+                                                    </option>
+                                                    {upstreamGroups
+                                                        .filter((group: any) => group.enabled)
+                                                        .map((group: any) => (
+                                                            <option key={group.id} value={group.id}>
+                                                                {group.name}
+                                                            </option>
+                                                        ))}
+                                                </select>
+                                                {fieldState.error && (
+                                                    <div className="invalid-feedback">
+                                                        {fieldState.error.message}
+                                                    </div>
+                                                )}
+                                            </>
+                                        )}
+                                    />
+                                    <div className="form__description">
+                                        {t('routing_rule_group_hint')}
+                                    </div>
+                                </div>
+                            )}
                         </>
                     )}
                 </div>

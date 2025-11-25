@@ -306,7 +306,8 @@ export interface UpstreamGroup {
     id: string;
     name: string;
     upstreams: string;
-    isDefault?: boolean;
+    enabled?: boolean;
+    is_default?: boolean;
 }
 
 export type DnsConfigData = {
@@ -356,6 +357,7 @@ export type FilteringData = {
     isFilterAdded: boolean;
     filters: Filter[];
     whitelistFilters: any[];
+    dnsRoutingFilters?: any[];
     userRules: string;
     interval: number;
     enabled: boolean;
