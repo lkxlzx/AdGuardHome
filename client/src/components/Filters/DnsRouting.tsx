@@ -75,16 +75,17 @@ class DnsRouting extends Component<DnsRoutingProps, DnsRoutingState> {
     }
 
     handleSubmit = (values: any) => {
-        const { name, url, upstreamGroup } = values;
+        const { name, url, upstreamGroup, updateInterval } = values;
 
         const { filtering } = this.props;
 
-        // Prepare data with upstream group
+        // Prepare data with upstream group and update interval
         const filterData = {
             name,
             url,
             enabled: true,
             upstreamGroup: upstreamGroup || '',
+            updateInterval: updateInterval !== undefined ? updateInterval : 0,
         };
 
         if (filtering.modalType === MODAL_TYPE.EDIT_FILTERS) {
@@ -92,7 +93,7 @@ class DnsRouting extends Component<DnsRoutingProps, DnsRoutingState> {
             this.props.editFilter(filtering.modalFilterUrl, filterData, false, true);
         } else {
             // Add new DNS routing rule
-            this.props.addFilter(url, name, false, true, upstreamGroup);
+            this.props.addFilter(url, name, false, true, upstreamGroup, updateInterval);
         }
     };
 

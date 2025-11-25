@@ -48,13 +48,16 @@ export const addFilterFailure = createAction('ADD_FILTER_FAILURE');
 export const addFilterSuccess = createAction('ADD_FILTER_SUCCESS');
 
 export const addFilter =
-    (url: any, name: any, whitelist = false, dnsRouting = false, upstreamGroup?: string) =>
+    (url: any, name: any, whitelist = false, dnsRouting = false, upstreamGroup?: string, updateInterval?: number) =>
     async (dispatch: any, getState: any) => {
         dispatch(addFilterRequest());
         try {
             const filterData: any = { url, name, whitelist, dns_routing: dnsRouting };
             if (upstreamGroup) {
                 filterData.upstream_group = upstreamGroup;
+            }
+            if (updateInterval !== undefined) {
+                filterData.update_interval = updateInterval;
             }
             await apiClient.addFilter(filterData);
             dispatch(addFilterSuccess(url));
@@ -118,11 +121,15 @@ export const editFilter =
     async (dispatch: any, getState: any) => {
         dispatch(editFilterRequest());
         try {
-            // Ensure upstream_group is included in the data if present
+            // Ensure upstream_group and update_interval are included in the data if present
             const filterData: any = { ...data };
             if (data.upstreamGroup) {
                 filterData.upstream_group = data.upstreamGroup;
                 delete filterData.upstreamGroup;
+            }
+            if (data.updateInterval !== undefined) {
+                filterData.update_interval = data.updateInterval;
+                delete filterData.updateInterval;
             }
             await apiClient.setFilterUrl({ url, data: filterData, whitelist, dns_routing: dnsRouting });
             dispatch(editFilterSuccess(url));
