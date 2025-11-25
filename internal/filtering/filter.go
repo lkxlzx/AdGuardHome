@@ -875,11 +875,21 @@ func (d *DNSFilter) enableFiltersLocked(ctx context.Context, async bool) {
 	}
 
 	// Add DNS routing filters to allowFilters with upstream group info
+	// Sort by priority first (lower number = higher priority)
+	sortedDnsRoutingFilters := make([]FilterYAML, 0, len(d.conf.DnsRoutingFilters))
 	for _, filter := range d.conf.DnsRoutingFilters {
-		if !filter.Enabled {
-			continue
+		if filter.Enabled {
+			sortedDnsRoutingFilters = append(sortedDnsRoutingFilters, filter)
 		}
-
+	}
+	
+	// Sort by priority (ascending order, so lower numbers come first)
+	slices.SortFunc(sortedDnsRoutingFilters, func(a, b FilterYAML) int {
+		return a.Priority - b.Priority
+	})
+	
+	// Add sorted filters to allowFilters
+	for _, filter := range sortedDnsRoutingFilters {
 		allowFilters = append(allowFilters, Filter{
 			ID:            filter.ID,
 			FilePath:      filter.Path(d.conf.DataDir),
