@@ -500,7 +500,7 @@ func (s *Server) processUpstream(ctx context.Context, dctx *dnsContext) (rc resu
 	// 1. Custom domain rules (highest priority)
 	// 2. URL-based filtering rules (from dns_routing_filters)
 	// 3. Client-based custom upstreams (already set above)
-	
+
 	// Check custom domain rules first
 	if len(req.Question) > 0 {
 		domain := req.Question[0].Name
@@ -635,7 +635,7 @@ func (s *Server) matchCustomDomainRule(domain string) string {
 		if !rule.Enabled {
 			continue
 		}
-		
+
 		if matchDomainWithType(domain, rule.Domain, rule.MatchType) {
 			return rule.UpstreamGroup
 		}
@@ -665,7 +665,11 @@ func (s *Server) setDNSRoutingUpstream(ctx context.Context, pctx *proxy.DNSConte
 		"group_name", upstreamGroup.Name,
 	)
 
-	upsConf := s.createUpstreamConfigFromGroup(upstreamGroup)
+	// Use cached CustomUpstreamConfig to preserve DNS response cache
+	upsConf := s.upstreamConfigCache.Get(groupID, func() *proxy.CustomUpstreamConfig {
+		return s.createUpstreamConfigFromGroup(upstreamGroup)
+	})
+
 	if upsConf != nil {
 		pctx.CustomUpstreamConfig = upsConf
 	}
@@ -675,6 +679,20 @@ func (s *Server) setDNSRoutingUpstream(ctx context.Context, pctx *proxy.DNSConte
 func (s *Server) processFilteringAfterResponse(ctx context.Context, dctx *dnsContext) (rc resultCode) {
 	s.logger.DebugContext(ctx, "started processing filtering after response")
 	defer s.logger.DebugContext(ctx, "finished processing filtering after response")
+
+	// Record domain for prefetch if it came from upstream
+	if dctx.responseFromUpstream && dctx.proxyCtx.Res != nil && s.prefetch != nil {
+		// Extract TTL from the first answer
+		var ttl uint32
+		if len(dctx.proxyCtx.Res.Answer) > 0 {
+			ttl = dctx.proxyCtx.Res.Answer[0].Header().Ttl
+		}
+		// Record domain for prefetch
+		// Note: We use the original question name
+		if len(dctx.proxyCtx.Req.Question) > 0 {
+			s.prefetch.Record(dctx.proxyCtx.Req.Question[0].Name, ttl)
+		}
+	}
 
 	switch res := dctx.result; res.Reason {
 	case filtering.NotFilteredAllowList:

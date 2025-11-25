@@ -186,6 +186,14 @@ type Server struct {
 	// conf is the current configuration of the server.
 	conf ServerConfig
 
+	// domainCache is the LRU cache for domain to upstream group mappings.
+	// It caches the results of GetUpstreamGroupForDomain to improve performance.
+	domainCache *DomainCache
+
+	// upstreamConfigCache caches CustomUpstreamConfig objects to avoid recreating
+	// them (and their internal DNS caches) on every query
+	upstreamConfigCache *upstreamConfigCache
+
 	// serverLock protects Server.
 	serverLock sync.RWMutex
 
@@ -199,6 +207,9 @@ type Server struct {
 	// hasIPAddrs is set during the certificate parsing and is true if the
 	// configured certificate contains at least a single IP address.
 	hasIPAddrs bool
+
+	// prefetch handles active cache warming for hot domains.
+	prefetch *PrefetchManager
 }
 
 // defaultLocalDomainSuffix is the default suffix used to detect internal hosts
@@ -265,11 +276,15 @@ func NewServer(p DNSCreateParams) (s *Server, err error) {
 			EnableLRU: true,
 			MaxCount:  defaultClientIDCacheCount,
 		}),
-		anonymizer: p.Anonymizer,
+		domainCache:         NewDomainCache(1000),     // LRU cache for domain routing (will be re-initialized in Prepare)
+		upstreamConfigCache: newUpstreamConfigCache(), // Cache for CustomUpstreamConfig objects
+		anonymizer:          p.Anonymizer,
 		conf: ServerConfig{
 			ServePlainDNS: true,
 		},
 	}
+
+	s.prefetch = NewPrefetchManager(s)
 
 	s.sysResolvers, err = sysresolv.NewSystemResolvers(nil, defaultPlainDNSPort)
 	if err != nil {
@@ -302,6 +317,10 @@ func (s *Server) Close(ctx context.Context) {
 	if err := s.ipset.close(); err != nil {
 		s.logger.ErrorContext(ctx, "closing ipset", slogutil.KeyError, err)
 	}
+
+	if s.prefetch != nil {
+		s.prefetch.Stop()
+	}
 }
 
 // WriteDiskConfig - write configuration
@@ -320,8 +339,8 @@ func (s *Server) WriteDiskConfig(c *Config) {
 	c.TrustedProxies = slices.Clone(sc.TrustedProxies)
 	c.UpstreamDNS = slices.Clone(sc.UpstreamDNS)
 	c.UpstreamGroups = slices.Clone(sc.UpstreamGroups)
-	c.DnsRoutingRules = slices.Clone(sc.DnsRoutingRules)
-	c.CustomDomainRules = slices.Clone(sc.CustomDomainRules)
+	c.DNSRoutingRules = sc.DNSRoutingRules
+	c.CustomDomainRules = sc.CustomDomainRules
 }
 
 // LocalPTRResolvers returns the current local PTR resolver configuration.
@@ -490,6 +509,7 @@ func (s *Server) startLocked(ctx context.Context) error {
 	err := s.dnsProxy.Start(ctx)
 	if err == nil {
 		s.isRunning = true
+		s.prefetch.Start()
 	}
 
 	return err
@@ -499,6 +519,20 @@ func (s *Server) startLocked(ctx context.Context) error {
 // nil.
 func (s *Server) Prepare(ctx context.Context, conf *ServerConfig) (err error) {
 	s.conf = *conf
+
+	// Initialize domain cache with configured capacity
+	cacheSize := s.conf.DomainCacheSize
+	if cacheSize <= 0 {
+		cacheSize = 1000 // default capacity
+	}
+	s.domainCache = NewDomainCache(cacheSize)
+	s.logger.Debug("initialized domain cache", "capacity", cacheSize)
+
+	// Clear upstream config cache when configuration changes
+	if s.upstreamConfigCache != nil {
+		s.upstreamConfigCache.Clear()
+		s.logger.Debug("cleared upstream config cache")
+	}
 
 	// dnsFilter can be nil during application update.
 	if s.dnsFilter != nil {
@@ -556,7 +590,7 @@ func (s *Server) Prepare(ctx context.Context, conf *ServerConfig) (err error) {
 func (s *Server) prepareUpstreamSettings(ctx context.Context, boot upstream.Resolver) (err error) {
 	// Load upstreams either from the default group, file, or from the settings
 	var upstreams []string
-	
+
 	// First, try to use the default upstream group
 	// Note: Don't call GetDefaultUpstreamGroup() here as it would cause a deadlock
 	// (Reconfigure already holds the write lock). Access s.conf directly instead.
@@ -567,7 +601,7 @@ func (s *Server) prepareUpstreamSettings(ctx context.Context, boot upstream.Reso
 			break
 		}
 	}
-	
+
 	if defaultGroup != nil && len(defaultGroup.Upstreams) > 0 {
 		// Use the default group's upstreams
 		for _, u := range defaultGroup.Upstreams {
@@ -591,7 +625,7 @@ func (s *Server) prepareUpstreamSettings(ctx context.Context, boot upstream.Reso
 		if !rule.Enabled {
 			continue
 		}
-		
+
 		// Get upstreams for this rule's group
 		var groupUpstreams []string
 		for i := range s.conf.UpstreamGroups {
@@ -621,7 +655,7 @@ func (s *Server) prepareUpstreamSettings(ctx context.Context, boot upstream.Reso
 		upstreamList := strings.Join(groupUpstreams, " ")
 		domainUpstream := fmt.Sprintf("[/%s/]%s", domain, upstreamList)
 		upstreams = append(upstreams, domainUpstream)
-		
+
 		s.logger.InfoContext(ctx, "added custom domain rule", "domain", domain, "upstream", domainUpstream)
 	}
 
