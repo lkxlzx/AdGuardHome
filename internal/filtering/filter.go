@@ -121,6 +121,12 @@ func (d *DNSFilter) filterSetProperties(
 	}
 
 	flt := &filters[i]
+	
+	// Ensure the dnsRouting flag is set correctly
+	if isDnsRouting {
+		flt.dnsRouting = true
+	}
+	
 	d.logger.DebugContext(
 		context.TODO(),
 		"updating filter",
@@ -128,6 +134,7 @@ func (d *DNSFilter) filterSetProperties(
 		"url", newList.URL,
 		"enabled", newList.Enabled,
 		"filter_url", flt.URL,
+		"dns_routing", flt.dnsRouting,
 	)
 
 	defer func(oldURL, oldName string, oldEnabled bool, oldUpdated time.Time, oldRulesCount int) {
@@ -510,6 +517,26 @@ func (d *DNSFilter) refreshFiltersIntl(block, allow, force bool) (int, bool) {
 		toUpd = append(toUpd, toUpdAl...)
 		isNetErr = isNetErr || isNetErrAl
 	}
+	
+	// Always refresh DNS routing filters
+	// Mark DNS routing filters before refreshing
+	d.conf.filtersMu.Lock()
+	for i := range d.conf.DnsRoutingFilters {
+		d.conf.DnsRoutingFilters[i].MarkAsDnsRouting()
+	}
+	d.conf.filtersMu.Unlock()
+	
+	updNumDr, listsDr, toUpdDr, isNetErrDr := d.refreshFiltersArray(
+		ctx,
+		&d.conf.DnsRoutingFilters,
+		force,
+	)
+
+	updNum += updNumDr
+	lists = append(lists, listsDr...)
+	toUpd = append(toUpd, toUpdDr...)
+	isNetErr = isNetErr || isNetErrDr
+	
 	if isNetErr {
 		return 0, true
 	}

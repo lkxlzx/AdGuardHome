@@ -1124,6 +1124,11 @@ func New(c *Config, blockFilters []Filter) (d *DNSFilter, err error) {
 
 	d.loadFilters(ctx, d.conf.Filters)
 	d.loadFilters(ctx, d.conf.WhitelistFilters)
+	
+	// Mark DNS routing filters before loading
+	for i := range d.conf.DnsRoutingFilters {
+		d.conf.DnsRoutingFilters[i].MarkAsDnsRouting()
+	}
 	d.loadFilters(ctx, d.conf.DnsRoutingFilters)
 
 	d.conf.Filters = deduplicateFilters(d.conf.Filters)

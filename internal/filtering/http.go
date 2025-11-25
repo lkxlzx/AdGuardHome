@@ -387,7 +387,8 @@ func (d *DNSFilter) handleFilteringSetRules(w http.ResponseWriter, r *http.Reque
 
 func (d *DNSFilter) handleFilteringRefresh(w http.ResponseWriter, r *http.Request) {
 	type Req struct {
-		White bool `json:"whitelist"`
+		White      bool `json:"whitelist"`
+		DnsRouting bool `json:"dns_routing"`
 	}
 	var err error
 
@@ -406,7 +407,15 @@ func (d *DNSFilter) handleFilteringRefresh(w http.ResponseWriter, r *http.Reques
 	resp := struct {
 		Updated int `json:"updated"`
 	}{}
-	resp.Updated, _, ok = d.tryRefreshFilters(!req.White, req.White, true)
+	
+	// If dns_routing is true, only refresh DNS routing filters
+	// Otherwise, refresh blocklist and/or whitelist filters
+	if req.DnsRouting {
+		resp.Updated, _, ok = d.tryRefreshFilters(false, false, true)
+	} else {
+		resp.Updated, _, ok = d.tryRefreshFilters(!req.White, req.White, true)
+	}
+	
 	if !ok {
 		aghhttp.ErrorAndLog(
 			ctx,
