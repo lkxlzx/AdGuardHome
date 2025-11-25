@@ -1,7 +1,6 @@
 package dnsforward
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -130,54 +129,6 @@ func (s *Server) GetUpstreamGroupForDomain(domain string) string {
 }
 
 // Note: matchDomainPattern is now defined in domain_match.go to avoid code duplication
-
-// createCustomUpstreamConfig creates a CustomUpstreamConfig from upstream server addresses.
-func (s *Server) createCustomUpstreamConfig(upstreamAddrs []string) (*proxy.CustomUpstreamConfig, error) {
-	if len(upstreamAddrs) == 0 {
-		return nil, fmt.Errorf("no upstream addresses provided")
-	}
-
-	// Parse upstream addresses
-	upstreams := make([]upstream.Upstream, 0, len(upstreamAddrs))
-	for _, addr := range upstreamAddrs {
-		// Use nil options for simplicity - will use default settings
-		ups, err := upstream.AddressToUpstream(addr, nil)
-		if err != nil {
-			s.logger.Error("failed to parse upstream", "address", addr, "error", err)
-			continue
-		}
-
-		upstreams = append(upstreams, ups)
-	}
-
-	if len(upstreams) == 0 {
-		return nil, fmt.Errorf("no valid upstreams")
-	}
-
-	// Create upstream config
-	upsConf := &proxy.UpstreamConfig{
-		Upstreams: upstreams,
-	}
-
-	// Create custom upstream config
-	// Convert CacheSize from uint32 to int
-	cacheSize := int(s.conf.CacheSize)
-	customConf := proxy.NewCustomUpstreamConfig(
-		upsConf,
-		true, // use parallel queries
-		cacheSize,
-		s.conf.EDNSClientSubnet.Enabled,
-	)
-
-	return customConf, nil
-}
-
-
-// getUpstreamGroupByID is an internal function to get upstream group by ID.
-// It's used by DNS routing logic in process.go.
-func (s *Server) getUpstreamGroupByID(groupID string) *UpstreamGroup {
-	return s.GetUpstreamGroupByID(groupID)
-}
 
 // createUpstreamConfigFromGroup creates a CustomUpstreamConfig from an UpstreamGroup.
 // This is used by DNS routing to create upstream configuration for matched domains.
