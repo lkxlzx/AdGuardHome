@@ -7,7 +7,7 @@
 
 ---
 
-## ✅ 已完成修复 (7/16)
+## ✅ 已完成修复 (8/16)
 
 ### 🔴 严重问题
 
@@ -85,7 +85,20 @@
 
 ---
 
-## ⏳ 待修复问题 (9/16)
+#### ✅ #16 - DNS 路由规则未经 Clash 处理 (已修复) 🆕
+**文件**: `internal/filtering/filter.go`, `internal/filtering/filtering.go`, `internal/filtering/http.go`
+**修复内容**:
+- 在 `filterSetProperties` 中标记 DNS 路由过滤器
+- 在加载配置时标记 DNS 路由过滤器
+- 在 `refreshFiltersIntl` 中包含 DNS 路由过滤器刷新
+- 在 `handleFilteringRefresh` 中添加 `dns_routing` 参数支持
+- 确保启用/禁用规则时触发 Clash 处理流程
+
+**影响**: 修复了启用/禁用 DNS 路由规则时使用原始文件而非 Clash 处理后文件的严重 bug
+
+---
+
+## ⏳ 待修复问题 (8/16)
 
 ### 🔴 严重问题
 
@@ -161,11 +174,11 @@
 
 | 类别 | 总数 | 已完成 | 待修复 | 完成率 |
 |------|------|--------|--------|--------|
-| 严重问题 | 3 | 2 | 1 | 67% |
+| 严重问题 | 4 | 3 | 1 | 75% |
 | 重要问题 | 5 | 2 | 3 | 40% |
 | 中等问题 | 5 | 2 | 3 | 40% |
 | 低优先级 | 3 | 1 | 2 | 33% |
-| **总计** | **16** | **7** | **9** | **44%** |
+| **总计** | **17** | **8** | **9** | **47%** |
 
 ---
 
@@ -203,6 +216,18 @@ fix: critical bugs and code quality improvements
 - Fix #14: Replace magic numbers with named constants
 
 Commit: 9df14784
+```
+
+### Commit 2: DNS 路由 Clash 处理修复
+```
+fix: DNS routing rules not processed through Clash filter on toggle/refresh
+
+- Fix #16: Mark DNS routing filters with dnsRouting flag
+- Include DNS routing filters in refresh operations
+- Add dns_routing parameter support to API
+- Ensure Clash processing on enable/disable
+
+Commit: 34fa1457
 ```
 
 ---
