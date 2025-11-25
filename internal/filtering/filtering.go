@@ -1170,6 +1170,8 @@ func (d *DNSFilter) Start() {
 func (d *DNSFilter) updatesLoop(ctx context.Context) {
 	defer slogutil.RecoverAndLog(ctx, d.logger)
 
+	// Start with 5 seconds for initial check, then use 1 minute for regular checks
+	// to support minute-level update intervals for DNS routing filters
 	ivl := time.Second * 5
 	t := time.NewTimer(ivl)
 
@@ -1197,9 +1199,15 @@ func (d *DNSFilter) updatesLoop(ctx context.Context) {
 // interval for the next update.
 func (d *DNSFilter) periodicallyRefreshFilters(ivl time.Duration) (nextIvl time.Duration) {
 	const maxInterval = time.Hour
+	const minInterval = time.Minute
+
+	// Always check DNS routing filters with custom intervals
+	// even if global interval is 0
+	_, _, _ = d.tryRefreshFilters(false, false, false)
 
 	if d.conf.FiltersUpdateIntervalHours == 0 {
-		return ivl
+		// Still check every minute for DNS routing filters with custom intervals
+		return minInterval
 	}
 
 	isNetErr, ok := false, false
@@ -1212,7 +1220,8 @@ func (d *DNSFilter) periodicallyRefreshFilters(ivl time.Duration) (nextIvl time.
 		ivl = max(ivl, maxInterval)
 	}
 
-	return ivl
+	// Use minimum interval to ensure DNS routing filters are checked frequently
+	return min(ivl, minInterval)
 }
 
 // Safe browsing and parental control methods.
