@@ -319,6 +319,9 @@ func (s *Server) WriteDiskConfig(c *Config) {
 	c.BlockedHosts = slices.Clone(sc.BlockedHosts)
 	c.TrustedProxies = slices.Clone(sc.TrustedProxies)
 	c.UpstreamDNS = slices.Clone(sc.UpstreamDNS)
+	c.UpstreamGroups = slices.Clone(sc.UpstreamGroups)
+	c.DnsRoutingRules = slices.Clone(sc.DnsRoutingRules)
+	c.CustomDomainRules = slices.Clone(sc.CustomDomainRules)
 }
 
 // LocalPTRResolvers returns the current local PTR resolver configuration.

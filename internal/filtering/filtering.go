@@ -315,6 +315,10 @@ type Filter struct {
 	// UpstreamGroup is the upstream group ID for DNS routing rules.
 	// Only used for whitelist filters that serve as routing rules.
 	UpstreamGroup string `yaml:"upstream_group,omitempty"`
+
+	// Priority is the matching priority for DNS routing rules.
+	// Lower number = higher priority. Only used for DNS routing filters.
+	Priority int `yaml:"priority,omitempty"`
 }
 
 // SetEnabled sets the status of the *DNSFilter.

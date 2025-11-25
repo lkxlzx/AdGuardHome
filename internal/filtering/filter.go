@@ -884,6 +884,7 @@ func (d *DNSFilter) enableFiltersLocked(ctx context.Context, async bool) {
 			ID:            filter.ID,
 			FilePath:      filter.Path(d.conf.DataDir),
 			UpstreamGroup: filter.UpstreamGroup,
+			Priority:      filter.Priority,
 		})
 	}
 
