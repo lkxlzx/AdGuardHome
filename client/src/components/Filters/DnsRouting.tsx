@@ -134,11 +134,9 @@ class DnsRouting extends Component<DnsRoutingProps, DnsRoutingState> {
         
         try {
             let updatedRules: CustomRule[];
-            let ruleIndex = -1;
             
             if (editingRule) {
                 // Edit existing rule
-                ruleIndex = customRules.findIndex(r => r === editingRule);
                 updatedRules = customRules.map(r => 
                     r === editingRule ? rule : r
                 );
@@ -154,18 +152,23 @@ class DnsRouting extends Component<DnsRoutingProps, DnsRoutingState> {
                 custom_domain_rules: updatedRules,
             };
             
-            // Call API to save
+            // Call API to save - wait for success before updating state
             await (this.props as any).setDnsConfig(newConfig);
             
-            // Reload DNS config
+            // Reload DNS config from server
             await getDnsConfig();
             
-            // Update local state
-            this.setState({ customRules: updatedRules, editingRule: null });
+            // Only update local state after successful API call
+            this.setState({ 
+                customRules: updatedRules, 
+                editingRule: null,
+                isCustomRuleModalOpen: false 
+            });
             
             // Show success message
             addSuccessToast(t('custom_rule_saved'));
         } catch (error) {
+            // On error, state remains unchanged
             addErrorToast({ error });
         }
     };
@@ -193,18 +196,19 @@ class DnsRouting extends Component<DnsRoutingProps, DnsRoutingState> {
                 custom_domain_rules: updatedRules,
             };
             
-            // Call API to save
+            // Call API to save - wait for success before updating state
             await (this.props as any).setDnsConfig(newConfig);
             
-            // Reload DNS config
+            // Reload DNS config from server
             await getDnsConfig();
             
-            // Update local state
+            // Only update local state after successful API call
             this.setState({ customRules: updatedRules });
             
             // Show success message
             addSuccessToast(t('custom_rule_saved'));
         } catch (error) {
+            // On error, state remains unchanged
             addErrorToast({ error });
         }
     };
@@ -224,18 +228,19 @@ class DnsRouting extends Component<DnsRoutingProps, DnsRoutingState> {
                     custom_domain_rules: updatedRules,
                 };
                 
-                // Call API to save
+                // Call API to save - wait for success before updating state
                 await (this.props as any).setDnsConfig(newConfig);
                 
-                // Reload DNS config
+                // Reload DNS config from server
                 await getDnsConfig();
                 
-                // Update local state
+                // Only update local state after successful API call
                 this.setState({ customRules: updatedRules });
                 
                 // Show success message
-                addSuccessToast(t('custom_rule_saved'));
+                addSuccessToast(t('custom_rule_deleted'));
             } catch (error) {
+                // On error, state remains unchanged
                 addErrorToast({ error });
             }
         }

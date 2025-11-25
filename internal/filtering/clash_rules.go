@@ -33,11 +33,18 @@ type ClashRuleStats struct {
 	ValidDomains    int `json:"valid_domains"` // Total valid domain rules
 }
 
+const (
+	// clashRuleDownloadTimeout is the timeout for downloading Clash rule files
+	clashRuleDownloadTimeout = 30 * time.Second
+	// maxClashRuleFileSize is the maximum size of a Clash rule file (10MB)
+	maxClashRuleFileSize = 10 * 1024 * 1024
+)
+
 // ParseClashRules parses a Clash rule file from a URL and returns domain rules
 func ParseClashRules(url string) ([]string, *ClashRuleStats, error) {
 	// Download the rule file
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: clashRuleDownloadTimeout,
 	}
 
 	resp, err := client.Get(url)

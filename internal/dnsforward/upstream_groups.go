@@ -66,36 +66,8 @@ func (s *Server) GetDefaultUpstreamGroup() *UpstreamGroup {
 	return nil
 }
 
-// GetEnabledUpstreamGroups returns all enabled upstream groups.
-// This can be used to list available groups for routing rules.
-func (s *Server) GetEnabledUpstreamGroups() []UpstreamGroup {
-	s.serverLock.RLock()
-	defer s.serverLock.RUnlock()
-
-	var enabled []UpstreamGroup
-	for _, group := range s.conf.UpstreamGroups {
-		if group.Enabled {
-			enabled = append(enabled, group)
-		}
-	}
-
-	return enabled
-}
-
-// GetUpstreamGroupByName returns an upstream group by its name.
-// This is useful for routing rules that reference groups by name.
-func (s *Server) GetUpstreamGroupByName(name string) *UpstreamGroup {
-	s.serverLock.RLock()
-	defer s.serverLock.RUnlock()
-
-	for i := range s.conf.UpstreamGroups {
-		if s.conf.UpstreamGroups[i].Name == name && s.conf.UpstreamGroups[i].Enabled {
-			return &s.conf.UpstreamGroups[i]
-		}
-	}
-
-	return nil
-}
+// Note: GetEnabledUpstreamGroups and GetUpstreamGroupByName were removed as they were unused.
+// If needed in the future, they can be re-added from v1 branch.
 
 // GetUpstreamGroupForDomain returns the upstream group ID for a given domain
 // based on DNS routing rules (whitelist filters with upstream groups).
@@ -122,7 +94,7 @@ func (s *Server) GetUpstreamGroupForDomain(domain string) string {
 		s.logger.Debug("checking custom rule", "index", i, "pattern", pattern, "upstream_group", rule.UpstreamGroup)
 		
 		if matchDomainPattern(domain, pattern) {
-			s.logger.Info("matched custom domain rule", "domain", domain, "pattern", pattern, "upstream_group", rule.UpstreamGroup)
+			s.logger.Debug("matched custom domain rule", "domain", domain, "pattern", pattern, "upstream_group", rule.UpstreamGroup)
 			return rule.UpstreamGroup
 		}
 	}
@@ -136,7 +108,7 @@ func (s *Server) GetUpstreamGroupForDomain(domain string) string {
 		// Check each domain pattern in the rule
 		for _, pattern := range rule.Domains {
 			if matchDomainPattern(domain, pattern) {
-				s.logger.Info("matched dns routing rule", "domain", domain, "pattern", pattern, "group_id", rule.GroupID)
+				s.logger.Debug("matched dns routing rule", "domain", domain, "pattern", pattern, "group_id", rule.GroupID)
 				return rule.GroupID
 			}
 		}
@@ -146,36 +118,7 @@ func (s *Server) GetUpstreamGroupForDomain(domain string) string {
 	return ""
 }
 
-// matchDomainPattern checks if a domain matches a pattern.
-// Supports three types of patterns:
-// - DOMAIN,example.com - exact match
-// - DOMAIN-SUFFIX,example.com - suffix match (*.example.com)
-// - DOMAIN-KEYWORD,example - keyword match (contains)
-func matchDomainPattern(domain, pattern string) bool {
-	pattern = strings.ToLower(pattern)
-
-	// Parse Clash-style patterns
-	if strings.HasPrefix(pattern, "DOMAIN,") {
-		// Exact match
-		targetDomain := strings.TrimPrefix(pattern, "DOMAIN,")
-		return domain == targetDomain
-	}
-
-	if strings.HasPrefix(pattern, "DOMAIN-SUFFIX,") {
-		// Suffix match
-		suffix := strings.TrimPrefix(pattern, "DOMAIN-SUFFIX,")
-		return domain == suffix || strings.HasSuffix(domain, "."+suffix)
-	}
-
-	if strings.HasPrefix(pattern, "DOMAIN-KEYWORD,") {
-		// Keyword match
-		keyword := strings.TrimPrefix(pattern, "DOMAIN-KEYWORD,")
-		return strings.Contains(domain, keyword)
-	}
-
-	// Default: treat as exact match
-	return domain == pattern
-}
+// Note: matchDomainPattern is now defined in domain_match.go to avoid code duplication
 
 // createCustomUpstreamConfig creates a CustomUpstreamConfig from upstream server addresses.
 func (s *Server) createCustomUpstreamConfig(upstreamAddrs []string) (*proxy.CustomUpstreamConfig, error) {

@@ -636,7 +636,7 @@ func (s *Server) matchCustomDomainRule(domain string) string {
 			continue
 		}
 		
-		if s.matchDomainPattern(domain, rule.Domain, rule.MatchType) {
+		if matchDomainWithType(domain, rule.Domain, rule.MatchType) {
 			return rule.UpstreamGroup
 		}
 	}
@@ -644,32 +644,11 @@ func (s *Server) matchCustomDomainRule(domain string) string {
 	return ""
 }
 
-// matchDomainPattern checks if a domain matches a pattern with the given match type.
-func (s *Server) matchDomainPattern(domain, pattern, matchType string) bool {
-	pattern = strings.ToLower(pattern)
-
-	switch matchType {
-	case "DOMAIN":
-		// Exact match
-		return domain == pattern
-
-	case "DOMAIN-SUFFIX":
-		// Suffix match (including exact match)
-		return domain == pattern || strings.HasSuffix(domain, "."+pattern)
-
-	case "DOMAIN-KEYWORD":
-		// Keyword match
-		return strings.Contains(domain, pattern)
-
-	default:
-		// Default to exact match
-		return domain == pattern
-	}
-}
+// Note: matchDomainPattern and matchDomainWithType are now defined in domain_match.go
 
 // setDNSRoutingUpstream sets upstream from DNS routing rules.
 func (s *Server) setDNSRoutingUpstream(ctx context.Context, pctx *proxy.DNSContext, groupID string) {
-	upstreamGroup := s.getUpstreamGroupByID(groupID)
+	upstreamGroup := s.GetUpstreamGroupByID(groupID)
 	if upstreamGroup == nil || !upstreamGroup.Enabled {
 		s.logger.DebugContext(
 			ctx,

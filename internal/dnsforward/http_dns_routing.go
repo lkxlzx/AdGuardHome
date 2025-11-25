@@ -77,9 +77,14 @@ func (s *Server) handleDnsRoutingAddURL(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Validate
+	// Validate URL format and length
 	if req.URL == "" {
 		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "url is required")
+		return
+	}
+
+	if len(req.URL) > 2048 {
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "url too long (max 2048 characters)")
 		return
 	}
 
@@ -88,7 +93,24 @@ func (s *Server) handleDnsRoutingAddURL(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Generate ID
+	if len(req.Name) > 256 {
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "name too long (max 256 characters)")
+		return
+	}
+
+	s.serverLock.Lock()
+	defer s.serverLock.Unlock()
+
+	// Check for duplicate URL
+	for _, existingRule := range s.conf.DnsRoutingRules {
+		if existingRule.URL == req.URL {
+			s.serverLock.Unlock()
+			aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusConflict, "rule with this url already exists")
+			return
+		}
+	}
+
+	// Generate unique ID
 	id := fmt.Sprintf("routing_%d", time.Now().UnixNano())
 
 	rule := DnsRoutingRule{
@@ -101,9 +123,7 @@ func (s *Server) handleDnsRoutingAddURL(w http.ResponseWriter, r *http.Request) 
 		LastUpdated: 0,
 	}
 
-	s.serverLock.Lock()
 	s.conf.DnsRoutingRules = append(s.conf.DnsRoutingRules, rule)
-	s.serverLock.Unlock()
 
 	// TODO: Trigger download and parsing of the rule file
 
@@ -118,7 +138,8 @@ type dnsRoutingSetURLReq struct {
 		GroupID string `json:"group_id"`
 		Enabled bool   `json:"enabled"`
 	} `json:"data"`
-	URL string `json:"url"` // Original URL to identify the rule
+	URL string `json:"url"` // Original URL to identify the rule (deprecated, use ID)
+	ID  string `json:"id"`  // Rule ID for unique identification
 }
 
 // handleDnsRoutingSetURL updates an existing DNS routing rule.
@@ -133,13 +154,26 @@ func (s *Server) handleDnsRoutingSetURL(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Validate: require either ID or URL
+	if req.ID == "" && req.URL == "" {
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "id or url is required")
+		return
+	}
+
 	s.serverLock.Lock()
 	defer s.serverLock.Unlock()
 
-	// Find the rule by URL
+	// Find the rule by ID (preferred) or URL (fallback for backward compatibility)
 	found := false
 	for i := range s.conf.DnsRoutingRules {
-		if s.conf.DnsRoutingRules[i].URL == req.URL {
+		match := false
+		if req.ID != "" {
+			match = s.conf.DnsRoutingRules[i].ID == req.ID
+		} else {
+			match = s.conf.DnsRoutingRules[i].URL == req.URL
+		}
+
+		if match {
 			s.conf.DnsRoutingRules[i].Name = req.Data.Name
 			s.conf.DnsRoutingRules[i].URL = req.Data.URL
 			s.conf.DnsRoutingRules[i].GroupID = req.Data.GroupID
@@ -159,7 +193,8 @@ func (s *Server) handleDnsRoutingSetURL(w http.ResponseWriter, r *http.Request) 
 
 // dnsRoutingRemoveURLReq represents a request to remove a DNS routing rule.
 type dnsRoutingRemoveURLReq struct {
-	URL string `json:"url"`
+	URL string `json:"url"` // Deprecated, use ID
+	ID  string `json:"id"`  // Rule ID for unique identification
 }
 
 // handleDnsRoutingRemoveURL removes a DNS routing rule.
@@ -174,26 +209,41 @@ func (s *Server) handleDnsRoutingRemoveURL(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Validate: require either ID or URL
+	if req.ID == "" && req.URL == "" {
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "id or url is required")
+		return
+	}
+
 	s.serverLock.Lock()
 	defer s.serverLock.Unlock()
 
-	// Find and remove the rule
-	found := false
+	// Find and remove the rule by ID (preferred) or URL (fallback)
+	ruleIndex := -1
 	for i := range s.conf.DnsRoutingRules {
-		if s.conf.DnsRoutingRules[i].URL == req.URL {
-			s.conf.DnsRoutingRules = append(
-				s.conf.DnsRoutingRules[:i],
-				s.conf.DnsRoutingRules[i+1:]...,
-			)
-			found = true
+		match := false
+		if req.ID != "" {
+			match = s.conf.DnsRoutingRules[i].ID == req.ID
+		} else {
+			match = s.conf.DnsRoutingRules[i].URL == req.URL
+		}
+
+		if match {
+			ruleIndex = i
 			break
 		}
 	}
 
-	if !found {
+	if ruleIndex == -1 {
 		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusNotFound, "rule not found")
 		return
 	}
+
+	// Safely remove the rule
+	s.conf.DnsRoutingRules = append(
+		s.conf.DnsRoutingRules[:ruleIndex],
+		s.conf.DnsRoutingRules[ruleIndex+1:]...,
+	)
 
 	aghhttp.OK(ctx, l, w)
 }
