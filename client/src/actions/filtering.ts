@@ -125,19 +125,24 @@ export const editFilter =
         dispatch(editFilterRequest());
         try {
             // Ensure upstream_group, update_interval, and priority are included in the data if present
-            const filterData: any = { ...data };
-            if (data.upstreamGroup) {
+            const filterData: any = {};
+            
+            // Copy basic fields
+            if (data.name !== undefined) filterData.name = data.name;
+            if (data.url !== undefined) filterData.url = data.url;
+            if (data.enabled !== undefined) filterData.enabled = data.enabled;
+            
+            // Convert camelCase to snake_case for API
+            if (data.upstreamGroup !== undefined) {
                 filterData.upstream_group = data.upstreamGroup;
-                delete filterData.upstreamGroup;
             }
             if (data.updateInterval !== undefined) {
                 filterData.update_interval = data.updateInterval;
-                delete filterData.updateInterval;
             }
             if (data.priority !== undefined) {
                 filterData.priority = data.priority;
-                delete filterData.priority;
             }
+            
             await apiClient.setFilterUrl({ url, data: filterData, whitelist, dns_routing: dnsRouting });
             dispatch(editFilterSuccess(url));
             if (getState().filtering.isModalOpen) {
