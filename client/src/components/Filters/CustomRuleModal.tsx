@@ -56,6 +56,7 @@ const CustomRuleModal: React.FC<CustomRuleModalProps> = ({ isOpen, onClose, onSu
             domain: domain.trim(),
             matchType,
             upstreamGroup,
+            enabled: editingRule?.enabled !== undefined ? editingRule.enabled : true, // Preserve enabled state when editing, default to true for new rules
         });
 
         // Reset form
