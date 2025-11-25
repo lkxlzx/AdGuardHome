@@ -157,12 +157,12 @@ class DnsRouting extends Component<DnsRoutingProps, DnsRoutingState> {
             // Call API to save - wait for success before updating state
             await (this.props as any).setDnsConfig(newConfig);
             
-            // Reload DNS config from server
+            // Reload DNS config from server to ensure consistency
             await getDnsConfig();
             
-            // Only update local state after successful API call
+            // Close modal and clear editing state
+            // Note: customRules will be updated via componentDidUpdate when dnsConfig changes
             this.setState({ 
-                customRules: updatedRules, 
                 editingRule: null,
                 isCustomRuleModalOpen: false 
             });
