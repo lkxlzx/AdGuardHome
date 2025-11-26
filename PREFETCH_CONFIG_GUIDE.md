@@ -4,6 +4,30 @@
 
 Prefetch（预取）功能可以自动刷新热门域名的DNS缓存，在缓存过期前主动查询，从而减少DNS查询延迟，提升用户体验。
 
+## ⚠️ 重要前提条件
+
+**Prefetch 功能依赖 DNS 缓存才能正常工作！**
+
+在启用 Prefetch 之前，必须确保：
+
+```yaml
+dns:
+  # 必须启用DNS缓存
+  cache_enabled: true
+  cache_size: 4194304  # 建议至少 4MB
+```
+
+**如果关闭缓存**：
+- ❌ Prefetch 会发送刷新查询，但结果不会被缓存
+- ❌ 无法减少DNS查询延迟
+- ❌ 浪费网络带宽和CPU资源
+- ⚠️ 系统会在启动时输出警告日志
+
+**推荐配置**：
+- 启用缓存：`cache_enabled: true`
+- 启用乐观缓存：`cache_optimistic: true`（可选，进一步减少延迟）
+- 合理的缓存大小：`cache_size: 4194304`（4MB）
+
 ## 配置参数
 
 ### 在 `AdGuardHome.yaml` 中添加以下配置：

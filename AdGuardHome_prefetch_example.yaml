@@ -17,21 +17,26 @@ dns:
     - 223.5.5.5
     - 119.29.29.29
   
-  # DNS 缓存设置
+  # DNS 缓存设置 (Prefetch 功能必需！)
+  # ⚠️ 重要: Prefetch 依赖缓存才能工作，必须启用 cache_enabled
   cache_enabled: true
-  cache_size: 4194304  # 4MB
+  cache_size: 4194304  # 4MB (建议至少 4MB)
   cache_ttl_min: 60
   cache_ttl_max: 86400
-  cache_optimistic: true
+  cache_optimistic: true  # 推荐启用，进一步减少延迟
   
   # 域名路由缓存
   domain_cache_size: 10000
   
   # ========== Prefetch 配置 (DNS 缓存预取) ==========
   
+  # ⚠️ 前提条件: 必须启用 cache_enabled: true
+  # 如果缓存关闭，Prefetch 将无法正常工作！
+  
   # 启用 DNS 预取功能
   # 功能: 自动刷新热门域名的缓存，减少查询延迟
   # 建议: 启用（除非设备性能极低或网络不稳定）
+  # 注意: 需要 cache_enabled: true
   prefetch_enabled: true
   
   # 热门域名阈值

@@ -513,6 +513,12 @@ func (s *Server) startLocked(ctx context.Context) error {
 		
 		// Start prefetch worker if enabled
 		if s.conf.PrefetchEnabled {
+			// Check if cache is enabled
+			if !s.conf.CacheEnabled {
+				s.logger.Warn("prefetch is enabled but DNS cache is disabled - prefetch will not work effectively")
+				s.logger.Warn("please enable cache_enabled in configuration for prefetch to function properly")
+			}
+			
 			s.prefetch.Start()
 			s.logger.Info("prefetch enabled and started")
 		} else {
