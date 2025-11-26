@@ -293,8 +293,8 @@ func (pm *PrefetchManager) Record(domain string, ttl uint32) {
 			pm.logger.Info("prefetch cache exceeded max entries, triggering cleanup",
 				"current", totalEntries,
 				"max", pm.maxEntries)
-			// Trigger async cleanup to avoid blocking
-			go pm.cleanup()
+			// Trigger async smart cleanup (force=false, only clean if needed)
+			go pm.cleanupInternal(false)
 		}
 	}
 }
@@ -464,15 +464,20 @@ func (pm *PrefetchManager) executeTask(task *RefreshTask, isUrgent bool) {
 }
 
 // cleanupWorker periodically scans for domains that need refreshing.
+// Uses dynamic cleanup interval based on memory pressure.
 func (pm *PrefetchManager) cleanupWorker() {
 	defer pm.workerWg.Done()
 
 	refreshTicker := time.NewTicker(10 * time.Second)
-	cleanupTicker := time.NewTicker(pm.cleanupInterval)
 	defer refreshTicker.Stop()
+	
+	// Dynamic cleanup interval
+	currentCleanupInterval := pm.cleanupInterval
+	cleanupTicker := time.NewTicker(currentCleanupInterval)
 	defer cleanupTicker.Stop()
 
-	pm.logger.Debug("cleanup worker started")
+	pm.logger.Debug("cleanup worker started",
+		"initial_cleanup_interval", currentCleanupInterval)
 
 	for {
 		select {
@@ -484,7 +489,53 @@ func (pm *PrefetchManager) cleanupWorker() {
 			pm.checkAndRefresh()
 
 		case <-cleanupTicker.C:
-			pm.cleanup()
+			// Periodic cleanup with force=true to maintain hygiene
+			pm.cleanupInternal(true)
+			
+			// Adjust cleanup interval based on memory pressure
+			totalEntries := pm.getTotalEntries()
+			utilizationRatio := float64(totalEntries) / float64(pm.maxEntries)
+			
+			var newInterval time.Duration
+			switch {
+			case utilizationRatio > 1.2:
+				// Severely over limit: cleanup every 15 minutes
+				newInterval = 15 * time.Minute
+			case utilizationRatio > 1.0:
+				// Over limit: cleanup every 30 minutes
+				newInterval = 30 * time.Minute
+			case utilizationRatio > 0.8:
+				// High usage: cleanup every 45 minutes
+				newInterval = 45 * time.Minute
+			case utilizationRatio > 0.5:
+				// Normal usage: use configured interval
+				newInterval = pm.cleanupInterval
+			default:
+				// Low usage: cleanup less frequently (2x interval)
+				newInterval = pm.cleanupInterval * 2
+			}
+			
+			// Cap the interval
+			if newInterval < 15*time.Minute {
+				newInterval = 15 * time.Minute
+			}
+			if newInterval > 4*time.Hour {
+				newInterval = 4 * time.Hour
+			}
+			
+			// Update ticker if interval changed significantly
+			if newInterval != currentCleanupInterval {
+				pm.logger.Info("adjusting cleanup interval",
+					"old_interval", currentCleanupInterval,
+					"new_interval", newInterval,
+					"utilization", fmt.Sprintf("%.1f%%", utilizationRatio*100),
+					"entries", totalEntries,
+					"max", pm.maxEntries)
+				
+				cleanupTicker.Stop()
+				cleanupTicker = time.NewTicker(newInterval)
+				currentCleanupInterval = newInterval
+			}
 		}
 	}
 }
@@ -525,61 +576,161 @@ func (pm *PrefetchManager) checkAndRefresh() {
 
 // cleanup removes stale entries from hits, domains, and lastAccess maps
 // to prevent memory leaks. This is called periodically and when maxEntries is exceeded.
+// For testing and periodic maintenance, it always performs cleanup.
 func (pm *PrefetchManager) cleanup() {
+	pm.cleanupInternal(true)
+}
+
+// cleanupInternal performs the actual cleanup with optional force mode.
+// force=true will clean even if under maxEntries limit (used for testing and periodic maintenance).
+func (pm *PrefetchManager) cleanupInternal(force bool) {
 	now := time.Now()
-	cleanupThreshold := 24 * time.Hour // Remove entries not accessed in 24 hours
-	lowHitThreshold := pm.threshold    // Remove entries below threshold
+	totalEntries := pm.getTotalEntries()
+	
+	// Smart cleanup: only clean if we exceed threshold (unless forced)
+	// This avoids unnecessary work when memory usage is acceptable
+	cleanupNeeded := totalEntries > pm.maxEntries || force
+	aggressiveCleanup := totalEntries > int(float64(pm.maxEntries)*1.2) // 20% over limit
+	
+	if !cleanupNeeded {
+		pm.logger.Debug("cleanup skipped, entries within limit",
+			"current", totalEntries,
+			"max", pm.maxEntries)
+		return
+	}
+	
+	lowHitThreshold := pm.threshold // Remove entries below threshold
+	
+	// Time threshold for considering entries as "old"
+	oldThreshold := 24 * time.Hour
+	if aggressiveCleanup {
+		oldThreshold = 12 * time.Hour // More aggressive when severely over limit
+	}
 
 	var totalRemoved int
 	var totalHits, totalDomains int
+	
+	// Calculate target: how many entries to remove
+	targetRemove := 0
+	if aggressiveCleanup {
+		// Remove 30% when severely over limit
+		targetRemove = int(float64(totalEntries) * 0.3)
+	} else if totalEntries > pm.maxEntries {
+		// Remove just enough to get back under limit
+		targetRemove = totalEntries - pm.maxEntries
+	} else if force {
+		// Force mode: clean up stale entries (10% or at least some entries)
+		targetRemove = int(float64(totalEntries) * 0.1)
+		if targetRemove < 1 && totalEntries > 0 {
+			targetRemove = totalEntries // Clean all if very few entries
+		}
+	}
 
-	// Clean up each shard
+	pm.logger.Debug("cleanup started",
+		"current_entries", totalEntries,
+		"max_entries", pm.maxEntries,
+		"target_remove", targetRemove,
+		"aggressive", aggressiveCleanup)
+
+	// Collect candidates for removal with their scores
+	type candidate struct {
+		domain string
+		score  float64 // Lower score = higher priority for removal
+		shard  *domainShard
+	}
+	
+	var candidates []candidate
+
+	// Collect candidates from all shards
 	for _, shard := range pm.shards {
-		shard.mu.Lock()
-
-		var removed int
-
-		// Clean up entries that haven't been accessed recently or have low hit counts
+		shard.mu.RLock()
+		
 		for domain, lastAccess := range shard.lastAccess {
-			shouldRemove := false
-
-			// Remove if not accessed in 24 hours AND not in active domains
-			// (keep hot domains even if old)
-			if now.Sub(lastAccess) > cleanupThreshold {
-				if _, inDomains := shard.domains[domain]; !inDomains {
-					shouldRemove = true
-				}
+			// Skip hot domains (currently being tracked for refresh)
+			if _, inDomains := shard.domains[domain]; inDomains {
+				continue
 			}
-
-			// Remove if hit count is below threshold and not in active domains
-			if _, inDomains := shard.domains[domain]; !inDomains {
-				if hits, exists := shard.hits[domain]; exists && hits < lowHitThreshold {
-					shouldRemove = true
-				}
+			
+			// Calculate removal score (lower = more likely to remove)
+			score := 0.0
+			
+			// Factor 1: Time since last access (older = lower score)
+			timeSinceAccess := now.Sub(lastAccess)
+			if timeSinceAccess > oldThreshold {
+				score -= 100 // Very old, high priority for removal
+			} else {
+				hoursRemaining := oldThreshold.Hours() - timeSinceAccess.Hours()
+				score += hoursRemaining * 2 // Recent access increases score
 			}
-
-			if shouldRemove {
-				delete(shard.hits, domain)
-				delete(shard.domains, domain)
-				delete(shard.lastAccess, domain)
-				delete(shard.hitTimestamps, domain)
-				removed++
+			
+			// Factor 2: Hit count (lower hits = lower score)
+			if hits, exists := shard.hits[domain]; exists {
+				score += float64(hits) * 10 // Each hit adds to score
+			}
+			
+			// Factor 3: Below threshold penalty
+			if hits, exists := shard.hits[domain]; exists && hits < lowHitThreshold {
+				score -= 50 // Below threshold, priority for removal
+			}
+			
+			candidates = append(candidates, candidate{
+				domain: domain,
+				score:  score,
+				shard:  shard,
+			})
+		}
+		
+		shard.mu.RUnlock()
+	}
+	
+	// Sort candidates by score (lowest first = highest priority for removal)
+	// Simple selection of lowest scores without full sort for better performance
+	removeCount := targetRemove
+	if removeCount > len(candidates) {
+		removeCount = len(candidates)
+	}
+	
+	// Remove entries with lowest scores
+	for i := 0; i < removeCount && i < len(candidates); i++ {
+		// Find minimum score in remaining candidates
+		minIdx := i
+		for j := i + 1; j < len(candidates); j++ {
+			if candidates[j].score < candidates[minIdx].score {
+				minIdx = j
 			}
 		}
-
-		totalRemoved += removed
+		
+		// Swap to position i
+		if minIdx != i {
+			candidates[i], candidates[minIdx] = candidates[minIdx], candidates[i]
+		}
+		
+		// Remove this entry
+		c := candidates[i]
+		c.shard.mu.Lock()
+		delete(c.shard.hits, c.domain)
+		delete(c.shard.domains, c.domain)
+		delete(c.shard.lastAccess, c.domain)
+		delete(c.shard.hitTimestamps, c.domain)
+		c.shard.mu.Unlock()
+		
+		totalRemoved++
+	}
+	
+	// Count remaining entries
+	for _, shard := range pm.shards {
+		shard.mu.RLock()
 		totalHits += len(shard.hits)
 		totalDomains += len(shard.domains)
-
-		shard.mu.Unlock()
+		shard.mu.RUnlock()
 	}
 
-	if totalRemoved > 0 {
-		pm.logger.Info("prefetch cleanup completed",
-			"removed", totalRemoved,
-			"remaining_hits", totalHits,
-			"remaining_domains", totalDomains)
-	}
+	pm.logger.Info("prefetch cleanup completed",
+		"removed", totalRemoved,
+		"target", targetRemove,
+		"remaining_hits", totalHits,
+		"remaining_domains", totalDomains,
+		"aggressive", aggressiveCleanup)
 }
 
 // refresh sends a DNS query to the server itself to trigger a cache update.
