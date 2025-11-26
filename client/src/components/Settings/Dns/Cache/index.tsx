@@ -13,10 +13,20 @@ import { RootState } from '../../../../initialState';
 const CacheConfig = () => {
     const { t } = useTranslation();
     const dispatch = useDispatch();
-    const { cache_enabled, cache_size, cache_ttl_max, cache_ttl_min, cache_optimistic } = useSelector(
-        (state: RootState) => state.dnsConfig,
-        shallowEqual,
-    );
+    const {
+        cache_enabled,
+        cache_size,
+        cache_ttl_max,
+        cache_ttl_min,
+        cache_optimistic,
+        prefetch_enabled,
+        prefetch_threshold,
+        prefetch_time_window,
+        prefetch_max_entries,
+        prefetch_cleanup_interval,
+        prefetch_soft_limit,
+        prefetch_hard_limit,
+    } = useSelector((state: RootState) => state.dnsConfig, shallowEqual);
 
     const handleFormSubmit = (values: any) => {
         const completedFields = replaceEmptyStringsWithZeroes(values);
@@ -37,6 +47,13 @@ const CacheConfig = () => {
                         cache_ttl_max: replaceZeroWithEmptyString(cache_ttl_max),
                         cache_ttl_min: replaceZeroWithEmptyString(cache_ttl_min),
                         cache_optimistic,
+                        prefetch_enabled: prefetch_enabled || false,
+                        prefetch_threshold: replaceZeroWithEmptyString(prefetch_threshold),
+                        prefetch_time_window: replaceZeroWithEmptyString(prefetch_time_window),
+                        prefetch_max_entries: replaceZeroWithEmptyString(prefetch_max_entries),
+                        prefetch_cleanup_interval: replaceZeroWithEmptyString(prefetch_cleanup_interval),
+                        prefetch_soft_limit: replaceZeroWithEmptyString(prefetch_soft_limit),
+                        prefetch_hard_limit: replaceZeroWithEmptyString(prefetch_hard_limit),
                     }}
                     onSubmit={handleFormSubmit}
                 />

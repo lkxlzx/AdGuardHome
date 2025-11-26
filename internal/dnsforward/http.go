@@ -22,6 +22,7 @@ import (
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/stringutil"
+	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/golibs/validate"
 )
 
@@ -134,6 +135,30 @@ type jsonDNSConfig struct {
 
 	// CustomDomainRules is the list of user-defined custom domain routing rules.
 	CustomDomainRules *[]CustomDomainRule `json:"custom_domain_rules"`
+
+	// Prefetch settings
+
+	// PrefetchEnabled defines if DNS prefetch (cache warming) is enabled.
+	PrefetchEnabled *bool `json:"prefetch_enabled"`
+
+	// PrefetchThreshold is the minimum number of hits required for a domain
+	// to be considered "hot" and eligible for prefetching.
+	PrefetchThreshold *int `json:"prefetch_threshold"`
+
+	// PrefetchTimeWindow is the time window for counting hits in seconds.
+	PrefetchTimeWindow *int `json:"prefetch_time_window"`
+
+	// PrefetchMaxEntries is the maximum number of domains to track for prefetching.
+	PrefetchMaxEntries *int `json:"prefetch_max_entries"`
+
+	// PrefetchCleanupInterval is the interval between automatic cleanup operations in seconds.
+	PrefetchCleanupInterval *int `json:"prefetch_cleanup_interval"`
+
+	// PrefetchSoftLimit is the soft limit for concurrent refresh operations.
+	PrefetchSoftLimit *int `json:"prefetch_soft_limit"`
+
+	// PrefetchHardLimit is the hard limit for concurrent refresh operations.
+	PrefetchHardLimit *int `json:"prefetch_hard_limit"`
 }
 
 // jsonUpstreamMode is a enumeration of upstream modes.
@@ -213,6 +238,15 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 	customDomainRules := make([]CustomDomainRule, len(s.conf.CustomDomainRules))
 	copy(customDomainRules, s.conf.CustomDomainRules)
 
+	// Prefetch settings
+	prefetchEnabled := s.conf.PrefetchEnabled
+	prefetchThreshold := s.conf.PrefetchThreshold
+	prefetchTimeWindow := int(time.Duration(s.conf.PrefetchTimeWindow).Seconds())
+	prefetchMaxEntries := s.conf.PrefetchMaxEntries
+	prefetchCleanupInterval := int(time.Duration(s.conf.PrefetchCleanupInterval).Seconds())
+	prefetchSoftLimit := s.conf.PrefetchSoftLimit
+	prefetchHardLimit := s.conf.PrefetchHardLimit
+
 	return &jsonDNSConfig{
 		Upstreams:                &upstreams,
 		UpstreamsFile:            &upstreamFile,
@@ -247,6 +281,13 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 		UpstreamGroups:           &upstreamGroups,
 		DNSRoutingRules:          &dnsRoutingRules,
 		CustomDomainRules:        &customDomainRules,
+		PrefetchEnabled:          &prefetchEnabled,
+		PrefetchThreshold:        &prefetchThreshold,
+		PrefetchTimeWindow:       &prefetchTimeWindow,
+		PrefetchMaxEntries:       &prefetchMaxEntries,
+		PrefetchCleanupInterval:  &prefetchCleanupInterval,
+		PrefetchSoftLimit:        &prefetchSoftLimit,
+		PrefetchHardLimit:        &prefetchHardLimit,
 	}
 }
 
@@ -695,6 +736,11 @@ func (s *Server) setConfigRestartable(dc *jsonDNSConfig) (shouldRestart bool) {
 		setIfNotNil(&s.conf.UpstreamGroups, dc.UpstreamGroups),
 		setIfNotNil(&s.conf.DNSRoutingRules, dc.DNSRoutingRules),
 		setIfNotNil(&s.conf.CustomDomainRules, dc.CustomDomainRules),
+		setIfNotNil(&s.conf.PrefetchEnabled, dc.PrefetchEnabled),
+		setIfNotNil(&s.conf.PrefetchThreshold, dc.PrefetchThreshold),
+		setIfNotNil(&s.conf.PrefetchMaxEntries, dc.PrefetchMaxEntries),
+		setIfNotNil(&s.conf.PrefetchSoftLimit, dc.PrefetchSoftLimit),
+		setIfNotNil(&s.conf.PrefetchHardLimit, dc.PrefetchHardLimit),
 	} {
 		shouldRestart = shouldRestart || hasSet
 		if shouldRestart {
@@ -711,6 +757,22 @@ func (s *Server) setConfigRestartable(dc *jsonDNSConfig) (shouldRestart bool) {
 		ut := time.Duration(*dc.UpstreamTimeout) * time.Second
 		if s.conf.UpstreamTimeout != ut {
 			s.conf.UpstreamTimeout = ut
+			shouldRestart = true
+		}
+	}
+
+	if dc.PrefetchTimeWindow != nil {
+		tw := timeutil.Duration(time.Duration(*dc.PrefetchTimeWindow) * time.Second)
+		if s.conf.PrefetchTimeWindow != tw {
+			s.conf.PrefetchTimeWindow = tw
+			shouldRestart = true
+		}
+	}
+
+	if dc.PrefetchCleanupInterval != nil {
+		ci := timeutil.Duration(time.Duration(*dc.PrefetchCleanupInterval) * time.Second)
+		if s.conf.PrefetchCleanupInterval != ci {
+			s.conf.PrefetchCleanupInterval = ci
 			shouldRestart = true
 		}
 	}
@@ -794,6 +856,70 @@ func (s *Server) handleCacheClear(w http.ResponseWriter, _ *http.Request) {
 	s.conf.ClientsContainer.ClearUpstreamCache()
 
 	_, _ = io.WriteString(w, "OK")
+}
+
+// prefetchStatusJSON is the response for the GET /control/prefetch_status endpoint.
+type prefetchStatusJSON struct {
+	Enabled bool `json:"enabled"`
+	
+	// Configuration
+	Threshold       int `json:"threshold"`
+	TimeWindow      int `json:"time_window"`       // in seconds
+	MaxEntries      int `json:"max_entries"`
+	CleanupInterval int `json:"cleanup_interval"`  // in seconds
+	SoftLimit       int `json:"soft_limit"`
+	HardLimit       int `json:"hard_limit"`
+	
+	// Runtime metrics
+	CurrentActive  int64 `json:"current_active"`
+	UrgentQueue    int64 `json:"urgent_queue"`
+	NormalQueue    int64 `json:"normal_queue"`
+	SoftLimitHits  int64 `json:"soft_limit_hits"`
+	HardLimitHits  int64 `json:"hard_limit_hits"`
+	TasksUpgraded  int64 `json:"tasks_upgraded"`
+	TasksDropped   int64 `json:"tasks_dropped"`
+	TasksCompleted int64 `json:"tasks_completed"`
+	TasksFailed    int64 `json:"tasks_failed"`
+	TrackedHits    int64 `json:"tracked_hits"`
+	HotDomains     int64 `json:"hot_domains"`
+	TrackedDomains int64 `json:"tracked_domains"`
+}
+
+// handleGetPrefetchStatus handles requests to the GET /control/prefetch_status endpoint.
+func (s *Server) handleGetPrefetchStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	
+	s.serverLock.RLock()
+	defer s.serverLock.RUnlock()
+	
+	resp := &prefetchStatusJSON{
+		Enabled:         s.conf.PrefetchEnabled,
+		Threshold:       s.conf.PrefetchThreshold,
+		TimeWindow:      int(time.Duration(s.conf.PrefetchTimeWindow).Seconds()),
+		MaxEntries:      s.conf.PrefetchMaxEntries,
+		CleanupInterval: int(time.Duration(s.conf.PrefetchCleanupInterval).Seconds()),
+		SoftLimit:       s.conf.PrefetchSoftLimit,
+		HardLimit:       s.conf.PrefetchHardLimit,
+	}
+	
+	// Get runtime metrics if prefetch is enabled
+	if s.conf.PrefetchEnabled && s.prefetch != nil {
+		metrics := s.prefetch.GetMetrics()
+		resp.CurrentActive = metrics["current_active"]
+		resp.UrgentQueue = metrics["urgent_queue"]
+		resp.NormalQueue = metrics["normal_queue"]
+		resp.SoftLimitHits = metrics["soft_limit_hits"]
+		resp.HardLimitHits = metrics["hard_limit_hits"]
+		resp.TasksUpgraded = metrics["tasks_upgraded"]
+		resp.TasksDropped = metrics["tasks_dropped"]
+		resp.TasksCompleted = metrics["tasks_completed"]
+		resp.TasksFailed = metrics["tasks_failed"]
+		resp.TrackedHits = metrics["tracked_hits"]
+		resp.HotDomains = metrics["hot_domains"]
+		resp.TrackedDomains = metrics["tracked_domains"]
+	}
+	
+	aghhttp.WriteJSONResponseOK(ctx, s.logger, w, r, resp)
 }
 
 // protectionJSON is an object for /control/protection endpoint.
@@ -891,6 +1017,7 @@ func (s *Server) registerHandlers() {
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_config", s.handleSetConfig)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/test_upstream_dns", s.handleTestUpstreamDNS)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/validate_clash_rule", s.handleValidateClashRule)
+	s.conf.HTTPReg.Register(http.MethodGet, "/control/prefetch_status", s.handleGetPrefetchStatus)
 
 	// Custom domain rules (simple domain -> upstream mapping)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/custom_domain_rules/add", s.handleAddCustomDomainRule)

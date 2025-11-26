@@ -506,6 +506,13 @@ export const CACHE_CONFIG_FIELDS = {
     cache_size: 'cache_size',
     cache_ttl_min: 'cache_ttl_min',
     cache_ttl_max: 'cache_ttl_max',
+    prefetch_enabled: 'prefetch_enabled',
+    prefetch_threshold: 'prefetch_threshold',
+    prefetch_time_window: 'prefetch_time_window',
+    prefetch_max_entries: 'prefetch_max_entries',
+    prefetch_cleanup_interval: 'prefetch_cleanup_interval',
+    prefetch_soft_limit: 'prefetch_soft_limit',
+    prefetch_hard_limit: 'prefetch_hard_limit',
 };
 
 export const isFirefox = navigator.userAgent.indexOf('Firefox') !== -1;

@@ -342,6 +342,13 @@ export type DnsConfigData = {
     cache_ttl_max?: number;
     cache_ttl_min?: number;
     cache_optimistic?: boolean;
+    prefetch_enabled?: boolean;
+    prefetch_threshold?: number;
+    prefetch_time_window?: number;
+    prefetch_max_entries?: number;
+    prefetch_cleanup_interval?: number;
+    prefetch_soft_limit?: number;
+    prefetch_hard_limit?: number;
 };
 
 export type FilteringData = {
