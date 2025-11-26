@@ -34,9 +34,14 @@
 /test-reports/
 AdGuardHome
 AdGuardHome.exe
+AdGuardHome_*.exe
 AdGuardHome.yaml*
 coverage.txt
 node_modules/
 tmp/
+*.txt
+!LICENSE.txt
+!test_china_domains.txt
+!test_custom_domains.txt
 
 !/build/gitkeep
