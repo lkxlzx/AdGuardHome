@@ -23,51 +23,76 @@ func TestPrefetchManager_Cleanup(t *testing.T) {
 
 	// Add some test domains
 	now := time.Now()
-	
-	pm.mu.Lock()
+
+	// Get shards for test domains
+	recentShard := pm.getShard("recent.com.")
+	oldHotShard := pm.getShard("old-hot.com.")
+	oldColdShard := pm.getShard("old-cold.com.")
+	inactiveShard := pm.getShard("inactive.com.")
+
 	// Recent domain (should not be cleaned)
-	pm.hits["recent.com."] = 10
-	pm.lastAccess["recent.com."] = now
-	pm.domains["recent.com."] = now.Add(1 * time.Hour)
+	recentShard.mu.Lock()
+	recentShard.hits["recent.com."] = 10
+	recentShard.lastAccess["recent.com."] = now
+	recentShard.domains["recent.com."] = now.Add(1 * time.Hour)
+	recentShard.mu.Unlock()
 
 	// Old domain with high hits (should not be cleaned)
-	pm.hits["old-hot.com."] = 20
-	pm.lastAccess["old-hot.com."] = now.Add(-25 * time.Hour)
-	pm.domains["old-hot.com."] = now.Add(1 * time.Hour)
+	oldHotShard.mu.Lock()
+	oldHotShard.hits["old-hot.com."] = 20
+	oldHotShard.lastAccess["old-hot.com."] = now.Add(-25 * time.Hour)
+	oldHotShard.domains["old-hot.com."] = now.Add(1 * time.Hour)
+	oldHotShard.mu.Unlock()
 
 	// Old domain with low hits (should be cleaned)
-	pm.hits["old-cold.com."] = 2
-	pm.lastAccess["old-cold.com."] = now.Add(-25 * time.Hour)
+	oldColdShard.mu.Lock()
+	oldColdShard.hits["old-cold.com."] = 2
+	oldColdShard.lastAccess["old-cold.com."] = now.Add(-25 * time.Hour)
+	oldColdShard.mu.Unlock()
 
 	// Domain below threshold, not in active domains (should be cleaned)
-	pm.hits["inactive.com."] = 3
-	pm.lastAccess["inactive.com."] = now.Add(-1 * time.Hour)
-	pm.mu.Unlock()
+	inactiveShard.mu.Lock()
+	inactiveShard.hits["inactive.com."] = 3
+	inactiveShard.lastAccess["inactive.com."] = now.Add(-1 * time.Hour)
+	inactiveShard.mu.Unlock()
 
 	// Run cleanup
 	pm.cleanup()
 
 	// Verify results
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
+	recentShard.mu.RLock()
+	recentExists := recentShard.hits["recent.com."] > 0
+	recentShard.mu.RUnlock()
+
+	oldHotShard.mu.RLock()
+	oldHotExists := oldHotShard.hits["old-hot.com."] > 0
+	oldHotShard.mu.RUnlock()
+
+	oldColdShard.mu.RLock()
+	_, oldColdExists := oldColdShard.hits["old-cold.com."]
+	oldColdShard.mu.RUnlock()
+
+	inactiveShard.mu.RLock()
+	_, inactiveExists := inactiveShard.hits["inactive.com."]
+	inactiveShard.mu.RUnlock()
 
 	// Recent domain should still exist
-	if _, exists := pm.hits["recent.com."]; !exists {
+	if !recentExists {
 		t.Error("Recent domain was incorrectly removed")
 	}
 
 	// Old hot domain should still exist (high hits)
-	if _, exists := pm.hits["old-hot.com."]; !exists {
+	if !oldHotExists {
 		t.Error("Old hot domain was incorrectly removed")
 	}
 
 	// Old cold domain should be removed
-	if _, exists := pm.hits["old-cold.com."]; exists {
+	if oldColdExists {
 		t.Error("Old cold domain was not removed")
 	}
 
 	// Inactive domain should be removed
-	if _, exists := pm.hits["inactive.com."]; exists {
+	if inactiveExists {
 		t.Error("Inactive domain was not removed")
 	}
 }
@@ -113,14 +138,15 @@ func TestPrefetchManager_ConcurrentRefresh(t *testing.T) {
 
 	// Add many domains that will expire immediately
 	now := time.Now()
-	pm.mu.Lock()
 	for i := 0; i < 100; i++ {
 		domain := fmt.Sprintf("domain%d.com.", i)
-		pm.domains[domain] = now.Add(-1 * time.Second) // Already expired
-		pm.hits[domain] = 10
-		pm.lastAccess[domain] = now
+		shard := pm.getShard(domain)
+		shard.mu.Lock()
+		shard.domains[domain] = now.Add(-1 * time.Second) // Already expired
+		shard.hits[domain] = 10
+		shard.lastAccess[domain] = now
+		shard.mu.Unlock()
 	}
-	pm.mu.Unlock()
 
 	// Trigger refresh
 	pm.checkAndRefresh()
