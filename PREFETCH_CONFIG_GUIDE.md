@@ -24,9 +24,14 @@ dns:
 - ⚠️ 系统会在启动时输出警告日志
 
 **推荐配置**：
-- 启用缓存：`cache_enabled: true`
-- 启用乐观缓存：`cache_optimistic: true`（可选，进一步减少延迟）
-- 合理的缓存大小：`cache_size: 4194304`（4MB）
+- 启用缓存：`cache_enabled: true`（必需）
+- 合理的缓存大小：`cache_size: 4194304`（4MB，推荐）
+- 乐观缓存：`cache_optimistic: true`（可选，作为兜底机制）
+
+**关于乐观缓存**：
+- Prefetch可以在关闭乐观缓存的情况下正常工作
+- 乐观缓存是可选的，但建议启用作为双保险
+- 如果Prefetch失败刷新，乐观缓存可以提供兜底
 
 ## 配置参数
 

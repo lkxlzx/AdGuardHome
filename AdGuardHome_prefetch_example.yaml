@@ -23,7 +23,8 @@ dns:
   cache_size: 4194304  # 4MB (建议至少 4MB)
   cache_ttl_min: 60
   cache_ttl_max: 86400
-  cache_optimistic: true  # 推荐启用，进一步减少延迟
+  cache_optimistic: true  # 可选，建议启用作为兜底机制
+                          # Prefetch在关闭乐观缓存时也能正常工作
   
   # 域名路由缓存
   domain_cache_size: 10000
