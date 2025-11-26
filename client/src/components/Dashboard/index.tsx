@@ -21,6 +21,8 @@ import Dropdown from '../ui/Dropdown';
 import UpstreamResponses from './UpstreamResponses';
 
 import UpstreamAvgTime from './UpstreamAvgTime';
+import CacheMetrics from './CacheMetrics';
+import PrefetchMetrics from './PrefetchMetrics';
 import { AccessData, DashboardData, StatsData } from '../../initialState';
 
 interface DashboardProps {
@@ -178,22 +180,33 @@ const Dashboard = ({
             {statsProcessing && <Loading />}
 
             {!statsProcessing && (
-                <div className="row row-cards dashboard">
-                    <div className="col-lg-12">
-                        {stats.interval === 0 && (
-                            <div className="alert alert-warning" role="alert">
-                                <Trans
-                                    components={[
-                                        <Link to={`${SETTINGS_URLS.settings}#stats-config`} key="0">
-                                            link
-                                        </Link>,
-                                    ]}>
-                                    stats_disabled
-                                </Trans>
-                            </div>
-                        )}
+                <>
+                    {/* DNS Cache Hit Rate and Prefetch Status Cards */}
+                    <div className="row row-cards">
+                        <div className="col-lg-6">
+                            <CacheMetrics />
+                        </div>
+                        <div className="col-lg-6">
+                            <PrefetchMetrics />
+                        </div>
+                    </div>
 
-                        <Statistics
+                    <div className="row row-cards dashboard">
+                        <div className="col-lg-12">
+                            {stats.interval === 0 && (
+                                <div className="alert alert-warning" role="alert">
+                                    <Trans
+                                        components={[
+                                            <Link to={`${SETTINGS_URLS.settings}#stats-config`} key="0">
+                                                link
+                                            </Link>,
+                                        ]}>
+                                        stats_disabled
+                                    </Trans>
+                                </div>
+                            )}
+
+                            <Statistics
                             interval={msToDays(stats.interval)}
                             dnsQueries={stats.dnsQueries}
                             blockedFiltering={stats.blockedFiltering}
@@ -244,14 +257,15 @@ const Dashboard = ({
                         />
                     </div>
 
-                    <div className="col-lg-6">
-                        <UpstreamAvgTime
-                            subtitle={subtitle}
-                            topUpstreamsAvgTime={stats.topUpstreamsAvgTime}
-                            refreshButton={refreshButton}
-                        />
+                        <div className="col-lg-6">
+                            <UpstreamAvgTime
+                                subtitle={subtitle}
+                                topUpstreamsAvgTime={stats.topUpstreamsAvgTime}
+                                refreshButton={refreshButton}
+                            />
+                        </div>
                     </div>
-                </div>
+                </>
             )}
         </>
     );

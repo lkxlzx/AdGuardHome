@@ -858,6 +858,23 @@ func (s *Server) handleCacheClear(w http.ResponseWriter, _ *http.Request) {
 	_, _ = io.WriteString(w, "OK")
 }
 
+// dashboardMetricsJSON is the response for the GET /control/dashboard_metrics endpoint.
+type dashboardMetricsJSON struct {
+	// Cache metrics
+	CacheEnabled    bool    `json:"cache_enabled"`
+	CacheSize       int     `json:"cache_size"`
+	CacheTTLMin     int     `json:"cache_ttl_min"`
+	CacheTTLMax     int     `json:"cache_ttl_max"`
+	CacheOptimistic bool    `json:"cache_optimistic"`
+	
+	// Prefetch metrics
+	PrefetchEnabled    bool  `json:"prefetch_enabled"`
+	PrefetchHotDomains int64 `json:"prefetch_hot_domains"`
+	PrefetchCompleted  int64 `json:"prefetch_completed"`
+	PrefetchFailed     int64 `json:"prefetch_failed"`
+	PrefetchSuccessRate float64 `json:"prefetch_success_rate"`
+}
+
 // prefetchStatusJSON is the response for the GET /control/prefetch_status endpoint.
 type prefetchStatusJSON struct {
 	Enabled bool `json:"enabled"`
@@ -883,6 +900,65 @@ type prefetchStatusJSON struct {
 	TrackedHits    int64 `json:"tracked_hits"`
 	HotDomains     int64 `json:"hot_domains"`
 	TrackedDomains int64 `json:"tracked_domains"`
+}
+
+// cacheMetricsJSON is the response for the GET /control/cache_metrics endpoint.
+type cacheMetricsJSON struct {
+	CacheEnabled bool    `json:"cache_enabled"`
+	CacheHitRate float64 `json:"cache_hit_rate"`
+	CacheSize    int     `json:"cache_size"`
+	TotalQueries int64   `json:"total_queries"`
+	CacheHits    int64   `json:"cache_hits"`
+	CacheMisses  int64   `json:"cache_misses"`
+	History      []float64 `json:"history"`
+	NextUpdateIn int64   `json:"next_update_in"` // seconds until next history update
+}
+
+// prefetchMetricsJSON is the response for the GET /control/prefetch_metrics endpoint.
+type prefetchMetricsJSON struct {
+	PrefetchEnabled   bool    `json:"prefetch_enabled"`
+	PrefetchStatus    string  `json:"prefetch_status"`
+	PrefetchHotDomains int64  `json:"prefetch_hot_domains"`
+	PrefetchCompleted int64   `json:"prefetch_completed"`
+	PrefetchFailed    int64   `json:"prefetch_failed"`
+	PrefetchSuccessRate float64 `json:"prefetch_success_rate"`
+	PrefetchQueueSize int64   `json:"prefetch_queue_size"`
+	LastPrefetchTime  string  `json:"last_prefetch_time"`
+}
+
+// handleGetDashboardMetrics handles requests to the GET /control/dashboard_metrics endpoint.
+func (s *Server) handleGetDashboardMetrics(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	
+	s.serverLock.RLock()
+	defer s.serverLock.RUnlock()
+	
+	resp := &dashboardMetricsJSON{
+		CacheEnabled:    s.conf.CacheEnabled,
+		CacheSize:       int(s.conf.CacheSize),
+		CacheTTLMin:     int(s.conf.CacheMinTTL),
+		CacheTTLMax:     int(s.conf.CacheMaxTTL),
+		CacheOptimistic: s.conf.CacheOptimistic,
+		PrefetchEnabled: s.conf.PrefetchEnabled,
+	}
+	
+	// Get Prefetch metrics if enabled
+	if s.conf.PrefetchEnabled && s.prefetch != nil {
+		metrics := s.prefetch.GetMetrics()
+		resp.PrefetchHotDomains = metrics["hot_domains"]
+		resp.PrefetchCompleted = metrics["tasks_completed"]
+		resp.PrefetchFailed = metrics["tasks_failed"]
+		
+		// Calculate success rate
+		total := resp.PrefetchCompleted + resp.PrefetchFailed
+		if total > 0 {
+			resp.PrefetchSuccessRate = float64(resp.PrefetchCompleted) / float64(total) * 100
+		} else {
+			resp.PrefetchSuccessRate = 100.0
+		}
+	}
+	
+	aghhttp.WriteJSONResponseOK(ctx, s.logger, w, r, resp)
 }
 
 // handleGetPrefetchStatus handles requests to the GET /control/prefetch_status endpoint.
@@ -917,6 +993,78 @@ func (s *Server) handleGetPrefetchStatus(w http.ResponseWriter, r *http.Request)
 		resp.TrackedHits = metrics["tracked_hits"]
 		resp.HotDomains = metrics["hot_domains"]
 		resp.TrackedDomains = metrics["tracked_domains"]
+	}
+	
+	aghhttp.WriteJSONResponseOK(ctx, s.logger, w, r, resp)
+}
+
+// handleGetCacheMetrics handles requests to the GET /control/cache_metrics endpoint.
+func (s *Server) handleGetCacheMetrics(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	
+	s.serverLock.RLock()
+	defer s.serverLock.RUnlock()
+	
+	resp := &cacheMetricsJSON{
+		CacheEnabled: s.conf.CacheEnabled,
+		CacheSize:    int(s.conf.CacheSize),
+		History:      make([]float64, 24),
+	}
+	
+	// Get cache statistics if enabled
+	if s.conf.CacheEnabled && s.dnsCacheStats != nil {
+		totalQueries, cacheHits, cacheMisses, history, nextUpdateIn := s.dnsCacheStats.GetStats()
+		resp.TotalQueries = totalQueries
+		resp.CacheHits = cacheHits
+		resp.CacheMisses = cacheMisses
+		resp.History = history
+		resp.NextUpdateIn = nextUpdateIn
+		
+		if resp.TotalQueries > 0 {
+			resp.CacheHitRate = float64(resp.CacheHits) / float64(resp.TotalQueries) * 100
+		}
+	}
+	
+	aghhttp.WriteJSONResponseOK(ctx, s.logger, w, r, resp)
+}
+
+// handleGetPrefetchMetrics handles requests to the GET /control/prefetch_metrics endpoint.
+func (s *Server) handleGetPrefetchMetrics(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	
+	s.serverLock.RLock()
+	defer s.serverLock.RUnlock()
+	
+	resp := &prefetchMetricsJSON{
+		PrefetchEnabled: s.conf.PrefetchEnabled,
+		PrefetchStatus:  "idle",
+	}
+	
+	// Get Prefetch metrics if enabled
+	if s.conf.PrefetchEnabled && s.prefetch != nil {
+		metrics := s.prefetch.GetMetrics()
+		resp.PrefetchHotDomains = metrics["hot_domains"]
+		resp.PrefetchCompleted = metrics["tasks_completed"]
+		resp.PrefetchFailed = metrics["tasks_failed"]
+		resp.PrefetchQueueSize = metrics["urgent_queue"] + metrics["normal_queue"]
+		
+		// Determine status
+		if metrics["current_active"] > 0 {
+			resp.PrefetchStatus = "active"
+		}
+		
+		// Calculate success rate
+		total := resp.PrefetchCompleted + resp.PrefetchFailed
+		if total > 0 {
+			resp.PrefetchSuccessRate = float64(resp.PrefetchCompleted) / float64(total) * 100
+		} else {
+			resp.PrefetchSuccessRate = 100.0
+		}
+		
+		// Set last prefetch time from actual metrics
+		if lastPrefetchUnix, ok := metrics["last_prefetch_unix"]; ok && lastPrefetchUnix > 0 {
+			resp.LastPrefetchTime = time.Unix(lastPrefetchUnix, 0).Format(time.RFC3339)
+		}
 	}
 	
 	aghhttp.WriteJSONResponseOK(ctx, s.logger, w, r, resp)
@@ -1017,7 +1165,10 @@ func (s *Server) registerHandlers() {
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_config", s.handleSetConfig)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/test_upstream_dns", s.handleTestUpstreamDNS)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/validate_clash_rule", s.handleValidateClashRule)
+	s.conf.HTTPReg.Register(http.MethodGet, "/control/dashboard_metrics", s.handleGetDashboardMetrics)
 	s.conf.HTTPReg.Register(http.MethodGet, "/control/prefetch_status", s.handleGetPrefetchStatus)
+	s.conf.HTTPReg.Register(http.MethodGet, "/control/cache_metrics", s.handleGetCacheMetrics)
+	s.conf.HTTPReg.Register(http.MethodGet, "/control/prefetch_metrics", s.handleGetPrefetchMetrics)
 
 	// Custom domain rules (simple domain -> upstream mapping)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/custom_domain_rules/add", s.handleAddCustomDomainRule)

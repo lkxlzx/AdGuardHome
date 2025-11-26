@@ -531,6 +531,19 @@ func (s *Server) processUpstream(ctx context.Context, dctx *dnsContext) (rc resu
 
 	s.setRespAD(pctx, reqWantsDNSSEC)
 
+	// Record cache statistics if cache is enabled
+	// Use dnsproxy's QueryStatistics to get accurate cache hit information
+	if s.conf.CacheEnabled && s.dnsCacheStats != nil {
+		isCacheHit := false
+		if qs := pctx.QueryStatistics(); qs != nil {
+			ms := qs.Main()
+			if len(ms) == 1 && ms[0].IsCached {
+				isCacheHit = true
+			}
+		}
+		s.dnsCacheStats.RecordQuery(isCacheHit)
+	}
+
 	return resultCodeSuccess
 }
 

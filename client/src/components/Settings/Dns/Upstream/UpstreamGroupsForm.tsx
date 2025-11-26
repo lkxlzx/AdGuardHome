@@ -1,7 +1,7 @@
 import React from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
-import { validateRequiredValue } from '../../../../helpers/validators';
+import { validateRequiredValue, validateUpstreamServers } from '../../../../helpers/validators';
 import { Input } from '../../../ui/Controls/Input';
 import { Textarea } from '../../../ui/Controls/Textarea';
 import { Checkbox } from '../../../ui/Controls/Checkbox';
@@ -74,7 +74,10 @@ export const UpstreamGroupsForm = ({ closeModal, onSubmit, processing, initialVa
                         control={control}
                         rules={{
                             required: t('form_error_required'),
-                            validate: validateRequiredValue,
+                            validate: {
+                                required: validateRequiredValue,
+                                format: validateUpstreamServers,
+                            },
                         }}
                         render={({ field, fieldState }) => (
                             <Textarea

@@ -91,6 +91,73 @@ type SystemResolvers interface {
 	Addrs() (addrs []netip.AddrPort)
 }
 
+// DNSCacheStats tracks DNS cache hit/miss statistics.
+type DNSCacheStats struct {
+	mu           sync.RWMutex
+	totalQueries int64
+	cacheHits    int64
+	cacheMisses  int64
+	history      [60]float64 // 60 minutes (1 hour) of cache hit rate history
+	historyIndex int
+	lastUpdate   time.Time
+}
+
+// RecordQuery records a cache hit or miss.
+func (cs *DNSCacheStats) RecordQuery(hit bool) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	cs.totalQueries++
+	if hit {
+		cs.cacheHits++
+	} else {
+		cs.cacheMisses++
+	}
+
+	// Update history every minute for 1-hour rolling window
+	now := time.Now()
+	if cs.lastUpdate.IsZero() || now.Sub(cs.lastUpdate) >= time.Minute {
+		cs.updateHistory()
+		cs.lastUpdate = now
+	}
+}
+
+// updateHistory updates the per-minute cache hit rate history.
+func (cs *DNSCacheStats) updateHistory() {
+	if cs.totalQueries > 0 {
+		hitRate := float64(cs.cacheHits) / float64(cs.totalQueries) * 100
+		cs.history[cs.historyIndex] = hitRate
+		cs.historyIndex = (cs.historyIndex + 1) % 60
+	}
+}
+
+// GetStats returns current cache statistics.
+func (cs *DNSCacheStats) GetStats() (totalQueries, cacheHits, cacheMisses int64, history []float64, nextUpdateIn int64) {
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
+
+	// Copy history in chronological order (60 minutes)
+	history = make([]float64, 60)
+	for i := 0; i < 60; i++ {
+		idx := (cs.historyIndex + i) % 60
+		history[i] = cs.history[idx]
+	}
+
+	// Calculate seconds until next update (updates every minute)
+	if !cs.lastUpdate.IsZero() {
+		nextUpdate := cs.lastUpdate.Add(time.Minute)
+		remaining := time.Until(nextUpdate)
+		if remaining > 0 {
+			nextUpdateIn = int64(remaining.Seconds())
+		}
+	} else {
+		// First update will happen in 1 minute from now
+		nextUpdateIn = 60
+	}
+
+	return cs.totalQueries, cs.cacheHits, cs.cacheMisses, history, nextUpdateIn
+}
+
 // Server is the main way to start a DNS server.
 //
 // Example:
@@ -210,6 +277,9 @@ type Server struct {
 
 	// prefetch handles active cache warming for hot domains.
 	prefetch *PrefetchManager
+
+	// dnsCacheStats tracks DNS cache hit/miss statistics.
+	dnsCacheStats *DNSCacheStats
 }
 
 // defaultLocalDomainSuffix is the default suffix used to detect internal hosts
@@ -286,6 +356,11 @@ func NewServer(p DNSCreateParams) (s *Server, err error) {
 
 	// Initialize prefetch manager (will be started later if enabled)
 	s.prefetch = NewPrefetchManager(s)
+
+	// Initialize DNS cache statistics
+	s.dnsCacheStats = &DNSCacheStats{
+		lastUpdate: time.Now(),
+	}
 
 	s.sysResolvers, err = sysresolv.NewSystemResolvers(nil, defaultPlainDNSPort)
 	if err != nil {

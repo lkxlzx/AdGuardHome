@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -79,11 +81,18 @@ type PrefetchManager struct {
 	// Metrics
 	metrics *PrefetchMetrics
 
+	// lastPrefetchTime stores the timestamp of the last successful prefetch
+	lastPrefetchTime atomic.Value // stores time.Time
+
 	// stopCh is used to signal the worker to stop.
 	stopCh chan struct{}
 
 	// Worker control
 	workerWg sync.WaitGroup
+
+	// Error logging
+	errorLogFile *os.File
+	errorLogMu   sync.Mutex
 }
 
 // NewPrefetchManager creates a new PrefetchManager with configuration from server.
@@ -173,6 +182,11 @@ func NewPrefetchManager(s *Server) *PrefetchManager {
 		}
 	}
 
+	// Initialize error log file
+	if err := pm.initErrorLog(); err != nil {
+		s.logger.Warn("failed to initialize prefetch error log", slogutil.KeyError, err)
+	}
+
 	s.logger.Info("prefetch manager initialized",
 		"threshold", threshold,
 		"time_window", timeWindow,
@@ -218,6 +232,10 @@ func (pm *PrefetchManager) Start() {
 func (pm *PrefetchManager) Stop() {
 	close(pm.stopCh)
 	pm.workerWg.Wait()
+	
+	// Close error log file
+	pm.closeErrorLog()
+	
 	pm.logger.Info("prefetch manager stopped")
 }
 
@@ -455,6 +473,7 @@ func (pm *PrefetchManager) executeTask(task *RefreshTask, isUrgent bool) {
 			pm.metrics.TasksFailed.Add(1)
 		} else {
 			pm.metrics.TasksCompleted.Add(1)
+			pm.lastPrefetchTime.Store(time.Now())
 			pm.logger.Debug("refresh completed",
 				"domain", task.Domain,
 				"wait", waitTime,
@@ -734,6 +753,7 @@ func (pm *PrefetchManager) cleanupInternal(force bool) {
 }
 
 // refresh sends a DNS query to the server itself to trigger a cache update.
+// It includes retry logic to handle temporary failures.
 func (pm *PrefetchManager) refresh(domain string) error {
 	// Create a local DNS client
 	c := new(dns.Client)
@@ -743,17 +763,89 @@ func (pm *PrefetchManager) refresh(domain string) error {
 	m.SetQuestion(domain, dns.TypeA)
 	m.RecursionDesired = true
 
-	// Using network loopback to simulate a real client and trigger full processing chain.
-	port := "53"
+	// Determine the target address and port
+	// Priority: UDP > TCP > TLS
+	var target string
+	
+	// Try UDP first (most common)
 	if len(pm.server.conf.UDPListenAddrs) > 0 {
-		port = fmt.Sprintf("%d", pm.server.conf.UDPListenAddrs[0].Port)
+		addr := pm.server.conf.UDPListenAddrs[0]
+		host := addr.IP.String()
+		if host == "" || host == "0.0.0.0" || host == "::" {
+			host = "127.0.0.1"
+		}
+		target = net.JoinHostPort(host, fmt.Sprintf("%d", addr.Port))
+	} else if len(pm.server.conf.TCPListenAddrs) > 0 {
+		// Fallback to TCP
+		c.Net = "tcp"
+		addr := pm.server.conf.TCPListenAddrs[0]
+		host := addr.IP.String()
+		if host == "" || host == "0.0.0.0" || host == "::" {
+			host = "127.0.0.1"
+		}
+		target = net.JoinHostPort(host, fmt.Sprintf("%d", addr.Port))
+	} else {
+		// Last resort: default port 53
+		target = net.JoinHostPort("127.0.0.1", "53")
 	}
 
-	// Use 127.0.0.1
-	target := net.JoinHostPort("127.0.0.1", port)
+	// Retry logic: try up to 3 times with exponential backoff
+	const maxRetries = 3
+	var lastErr error
+	
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		pm.logger.Debug("prefetch refresh attempt",
+			"domain", domain,
+			"target", target,
+			"attempt", attempt,
+			"max_retries", maxRetries)
 
-	_, _, err := c.Exchange(m, target)
-	return err
+		_, _, err := c.Exchange(m, target)
+		if err == nil {
+			// Success
+			if attempt > 1 {
+				pm.logger.Debug("prefetch refresh succeeded after retry",
+					"domain", domain,
+					"attempt", attempt)
+				// Log retry success to error log
+				pm.logRetrySuccess(domain, target, attempt)
+			}
+			return nil
+		}
+
+		lastErr = err
+		
+		// Log each failure attempt to error log
+		pm.logError(domain, target, attempt, err)
+		
+		// Don't retry on last attempt
+		if attempt < maxRetries {
+			// Exponential backoff: 100ms, 200ms, 400ms
+			backoff := time.Duration(100*attempt) * time.Millisecond
+			pm.logger.Debug("prefetch refresh failed, retrying",
+				"domain", domain,
+				"attempt", attempt,
+				"err", err,
+				"backoff", backoff)
+			time.Sleep(backoff)
+		}
+	}
+
+	// All retries failed
+	pm.logger.Warn("prefetch refresh failed after all retries",
+		"domain", domain,
+		"target", target,
+		"attempts", maxRetries,
+		"err", lastErr)
+	
+	// Try to rotate log if needed (check every 100 failures)
+	if pm.metrics.TasksFailed.Load()%100 == 0 {
+		if err := pm.rotateErrorLog(); err != nil {
+			pm.logger.Warn("failed to rotate error log", slogutil.KeyError, err)
+		}
+	}
+	
+	return lastErr
 }
 
 // GetStats returns statistics about the prefetch manager.
@@ -810,7 +902,7 @@ func (pm *PrefetchManager) logMetrics() {
 func (pm *PrefetchManager) GetMetrics() map[string]int64 {
 	hits, domains, tracked := pm.GetStats()
 
-	return map[string]int64{
+	metrics := map[string]int64{
 		"current_active":   int64(pm.metrics.CurrentActive.Load()),
 		"urgent_queue":     int64(pm.metrics.UrgentQueueSize.Load()),
 		"normal_queue":     int64(pm.metrics.NormalQueueSize.Load()),
@@ -824,4 +916,148 @@ func (pm *PrefetchManager) GetMetrics() map[string]int64 {
 		"hot_domains":      int64(domains),
 		"tracked_domains":  int64(tracked),
 	}
+
+	// Add last prefetch time if available
+	if t := pm.lastPrefetchTime.Load(); t != nil {
+		if lastTime, ok := t.(time.Time); ok {
+			metrics["last_prefetch_unix"] = lastTime.Unix()
+		}
+	}
+
+	return metrics
+}
+
+// initErrorLog initializes the error log file for prefetch failures.
+func (pm *PrefetchManager) initErrorLog() error {
+	// Get executable directory
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("get executable path: %w", err)
+	}
+	
+	exeDir := filepath.Dir(exePath)
+	logPath := filepath.Join(exeDir, "prefetch_errors.log")
+	
+	// Open log file in append mode, create if not exists
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("open error log file: %w", err)
+	}
+	
+	pm.errorLogFile = file
+	pm.logger.Info("prefetch error log initialized", "path", logPath)
+	
+	// Write header
+	pm.logError("", "", 0, fmt.Errorf("=== Prefetch Error Log Started at %s ===", time.Now().Format(time.RFC3339)))
+	
+	return nil
+}
+
+// closeErrorLog closes the error log file.
+func (pm *PrefetchManager) closeErrorLog() {
+	pm.errorLogMu.Lock()
+	defer pm.errorLogMu.Unlock()
+	
+	if pm.errorLogFile != nil {
+		// Write footer
+		fmt.Fprintf(pm.errorLogFile, "=== Prefetch Error Log Closed at %s ===\n\n", time.Now().Format(time.RFC3339))
+		pm.errorLogFile.Close()
+		pm.errorLogFile = nil
+	}
+}
+
+// logError writes a detailed error entry to the error log file.
+func (pm *PrefetchManager) logError(domain, target string, attempt int, err error) {
+	pm.errorLogMu.Lock()
+	defer pm.errorLogMu.Unlock()
+	
+	if pm.errorLogFile == nil {
+		return
+	}
+	
+	timestamp := time.Now().Format("2006-01-02 15:04:05.000")
+	
+	if domain == "" {
+		// Header/footer message
+		fmt.Fprintf(pm.errorLogFile, "%s\n", err.Error())
+		return
+	}
+	
+	// Format: [timestamp] domain | target | attempt | error
+	fmt.Fprintf(pm.errorLogFile, "[%s] Domain: %-50s | Target: %-20s | Attempt: %d | Error: %v\n",
+		timestamp, domain, target, attempt, err)
+	
+	// Flush to ensure immediate write
+	pm.errorLogFile.Sync()
+}
+
+// logRetrySuccess writes a retry success entry to the error log file.
+func (pm *PrefetchManager) logRetrySuccess(domain, target string, attempt int) {
+	pm.errorLogMu.Lock()
+	defer pm.errorLogMu.Unlock()
+	
+	if pm.errorLogFile == nil {
+		return
+	}
+	
+	timestamp := time.Now().Format("2006-01-02 15:04:05.000")
+	
+	// Format: [timestamp] domain | target | attempt | SUCCESS
+	fmt.Fprintf(pm.errorLogFile, "[%s] Domain: %-50s | Target: %-20s | Attempt: %d | SUCCESS (recovered from failure)\n",
+		timestamp, domain, target, attempt)
+	
+	pm.errorLogFile.Sync()
+}
+
+// rotateErrorLog rotates the error log file if it exceeds a certain size.
+func (pm *PrefetchManager) rotateErrorLog() error {
+	pm.errorLogMu.Lock()
+	defer pm.errorLogMu.Unlock()
+	
+	if pm.errorLogFile == nil {
+		return nil
+	}
+	
+	// Check file size
+	info, err := pm.errorLogFile.Stat()
+	if err != nil {
+		return err
+	}
+	
+	// Rotate if file size > 10MB
+	if info.Size() < 10*1024*1024 {
+		return nil
+	}
+	
+	// Close current file
+	pm.errorLogFile.Close()
+	
+	// Get file path
+	exePath, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	
+	exeDir := filepath.Dir(exePath)
+	logPath := filepath.Join(exeDir, "prefetch_errors.log")
+	backupPath := filepath.Join(exeDir, fmt.Sprintf("prefetch_errors.%s.log", time.Now().Format("20060102_150405")))
+	
+	// Rename old file
+	if err := os.Rename(logPath, backupPath); err != nil {
+		return err
+	}
+	
+	// Create new file
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+	
+	pm.errorLogFile = file
+	pm.logger.Info("prefetch error log rotated", "backup", backupPath)
+	
+	// Write header
+	fmt.Fprintf(pm.errorLogFile, "=== Prefetch Error Log Started at %s (after rotation) ===\n", time.Now().Format(time.RFC3339))
+	
+	return nil
 }

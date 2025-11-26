@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"time"
 
 	"github.com/AdguardTeam/AdGuardHome/internal/agh"
 	"github.com/AdguardTeam/AdGuardHome/internal/aghhttp"
@@ -128,6 +129,12 @@ type V4ServerConf struct {
 
 	ipRange *ipRange
 
+	// dnsIPAddrs is the list of DNS server IP addresses to send to DHCP clients.
+	dnsIPAddrs []netip.Addr
+
+	// leaseTime is the parsed duration of leases.
+	leaseTime time.Duration
+
 	// subnet contains the DHCP server's subnet.  The IP is the IP of the
 	// gateway.
 	subnet netip.Prefix
@@ -245,8 +252,17 @@ type V6ServerConf struct {
 
 	LeaseDuration uint32 `yaml:"lease_duration" json:"lease_duration"` // in seconds
 
+	// ipStart is the parsed starting IP address for dynamic leases.
+	ipStart net.IP
+
 	RASLAACOnly  bool `yaml:"ra_slaac_only" json:"-"`  // send ICMPv6.RA packets without MO flags
 	RAAllowSLAAC bool `yaml:"ra_allow_slaac" json:"-"` // send ICMPv6.RA packets with MO flags
+
+	// dnsIPAddrs is the list of DNS server IP addresses to send to DHCP clients.
+	dnsIPAddrs []net.IP
+
+	// leaseTime is the parsed duration of leases.
+	leaseTime time.Duration
 
 	// Server calls this function when leases data changes
 	notify func(uint32)

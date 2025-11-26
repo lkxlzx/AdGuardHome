@@ -1,0 +1,106 @@
+/* Prefetch Card Styles */
+.prefetch-card {
+    padding: 1rem 1.5rem;
+}
+
+.prefetch-card__header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 1.25rem;
+}
+
+.prefetch-card__title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--body-color);
+    margin-left: 0.5rem;
+}
+
+.prefetch-card__disabled {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 0;
+}
+
+.prefetch-card__stats {
+    display: flex;
+    justify-content: space-around;
+    margin-bottom: 1.25rem;
+    padding: 1rem 0;
+    border-top: 1px solid var(--card-border-color);
+    border-bottom: 1px solid var(--card-border-color);
+}
+
+.prefetch-stat {
+    text-align: center;
+}
+
+.prefetch-stat__value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.2;
+    margin-bottom: 0.25rem;
+}
+
+.prefetch-stat__label {
+    font-size: 0.75rem;
+    color: var(--gray-text);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.prefetch-card__details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.prefetch-detail {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.875rem;
+}
+
+.prefetch-detail__label {
+    color: var(--gray-text);
+}
+
+.prefetch-detail__value {
+    font-weight: 600;
+}
+
+/* Cache Card Disabled Overlay */
+.card-disabled-overlay {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--gray-text);
+    font-size: 0.875rem;
+    background: rgba(255, 255, 255, 0.8);
+}
+
+/* Responsive adjustments */
+@media (max-width: 991.98px) {
+    .prefetch-card__stats {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .prefetch-stat {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .prefetch-stat__value {
+        font-size: 1.25rem;
+    }
+
+    .prefetch-stat__label {
+        font-size: 0.875rem;
+        text-transform: none;
+    }
+}

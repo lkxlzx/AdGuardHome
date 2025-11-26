@@ -406,3 +406,84 @@ export const validatePlainDns = (value: any, allValues: any) => {
 
     return undefined;
 };
+
+/**
+ * Validates DNS upstream servers list
+ * Supports: IP, IP:port, [ipv6], [ipv6]:port, https://, tls://, quic://, sdns://
+ * @param value {string}
+ * @returns {undefined|string}
+ */
+export const validateUpstreamServers = (value: any) => {
+    if (!value) {
+        return undefined;
+    }
+
+    const lines = value.split('\n').map((line: string) => line.trim()).filter((line: string) => line.length > 0);
+    
+    if (lines.length === 0) {
+        return undefined;
+    }
+
+    // Regex patterns for different upstream formats
+    const patterns = {
+        // Plain IP: 8.8.8.8
+        plainIp: /^(\d{1,3}\.){3}\d{1,3}$/,
+        // IP with port: 8.8.8.8:53
+        ipWithPort: /^(\d{1,3}\.){3}\d{1,3}:\d{1,5}$/,
+        // IPv6: [2001:4860:4860::8888]
+        ipv6: /^\[([0-9a-fA-F:]+)\]$/,
+        // IPv6 with port: [2001:4860:4860::8888]:53
+        ipv6WithPort: /^\[([0-9a-fA-F:]+)\]:\d{1,5}$/,
+        // Protocol-based: https://, tls://, quic://, sdns://
+        protocol: /^(https?|tls|quic|sdns):\/\/.+/,
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // Skip comments
+        if (line.startsWith('#')) {
+            continue;
+        }
+
+        let isValid = false;
+
+        // Check protocol-based formats first
+        if (patterns.protocol.test(line)) {
+            isValid = true;
+        }
+        // Check IPv6 formats
+        else if (patterns.ipv6.test(line) || patterns.ipv6WithPort.test(line)) {
+            isValid = true;
+        }
+        // Check IPv4 formats
+        else if (patterns.plainIp.test(line) || patterns.ipWithPort.test(line)) {
+            // Validate IP address octets
+            const ipMatch = line.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/);
+            if (ipMatch) {
+                const octets = [ipMatch[1], ipMatch[2], ipMatch[3], ipMatch[4]];
+                const validOctets = octets.every((octet) => {
+                    const num = parseInt(octet, 10);
+                    return num >= 0 && num <= 255;
+                });
+                
+                if (validOctets) {
+                    // Validate port if present
+                    const portMatch = line.match(/:(\d{1,5})$/);
+                    if (portMatch) {
+                        const port = parseInt(portMatch[1], 10);
+                        isValid = port >= 1 && port <= 65535;
+                    } else {
+                        isValid = true;
+                    }
+                }
+            }
+        }
+
+        if (!isValid) {
+            return i18next.t('form_error_upstream_format', { line: i + 1, value: line });
+        }
+    }
+
+    return undefined;
+};

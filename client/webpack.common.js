@@ -102,8 +102,8 @@ const config = {
             template: HTML_LOGIN_PATH,
         }),
         new MiniCssExtractPlugin({
-            filename: isDev ? '[name].css' : '[name].[hash].css',
-            chunkFilename: isDev ? '[id].css' : '[id].[hash].css',
+            filename: isDev ? '[name].css' : '[name].[contenthash].css',
+            chunkFilename: isDev ? '[id].css' : '[id].[contenthash].css',
         }),
         new CopyPlugin({
             patterns: [

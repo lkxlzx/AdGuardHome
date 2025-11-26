@@ -5,57 +5,58 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"sync/atomic"
+	"time"
 
 	"github.com/AdguardTeam/golibs/netutil"
+	"golang.org/x/net/icmp"
 )
 
 // raCtx is a context for the Router Advertisement logic.
-// raCtx is a context for the Router Advertisement logic.
 //
 // TODO(e.burkov):  This struct is unused.  Remove it or use it.
-//
-// type raCtx struct {
-// 	// raAllowSLAAC is used to determine if the ICMP Router Advertisement
-// 	// messages should be sent.
-// 	//
-// 	// If both raAllowSLAAC and raSLAACOnly are false, the Router Advertisement
-// 	// messages aren't sent.
-// 	raAllowSLAAC bool
-//
-// 	// raSLAACOnly is used to determine if the ICMP Router Advertisement
-// 	// messages should set M and O flags, see RFC 4861, section 4.2.
-// 	//
-// 	// If both raAllowSLAAC and raSLAACOnly are false, the Router Advertisement
-// 	// messages aren't sent.
-// 	raSLAACOnly bool
-//
-// 	// ipAddr is an IP address used within the Source Link-Layer Address option.
-// 	// See RFC 4861, section 4.6.1.
-// 	ipAddr net.IP
-//
-// 	// dnsIPAddr is an IP address used within the DNS Server option.
-// 	dnsIPAddr net.IP
-//
-// 	// prefixIPAddr is an IP address used within the Prefix Information option.
-// 	// See RFC 4861, section 4.6.2.
-// 	prefixIPAddr net.IP
-//
-// 	// ifaceName is the name of the interface used as a scope of the IP
-// 	// addresses.
-// 	ifaceName string
-//
-// 	// iface is the network interface used to send the ICMPv6 packets.
-// 	iface *net.Interface
-//
-// 	// packetSendPeriod is the interval between sending the ICMPv6 packets.
-// 	packetSendPeriod time.Duration
-//
-// 	// conn is the ICMPv6 socket.
-// 	conn *icmp.PacketConn
-//
-// 	// stop is used to stop the packet sending loop.
-// 	stop atomic.Value
-// }
+type raCtx struct {
+	// raAllowSLAAC is used to determine if the ICMP Router Advertisement
+	// messages should be sent.
+	//
+	// If both raAllowSLAAC and raSLAACOnly are false, the Router Advertisement
+	// messages aren't sent.
+	raAllowSLAAC bool
+
+	// raSLAACOnly is used to determine if the ICMP Router Advertisement
+	// messages should set M and O flags, see RFC 4861, section 4.2.
+	//
+	// If both raAllowSLAAC and raSLAACOnly are false, the Router Advertisement
+	// messages aren't sent.
+	raSLAACOnly bool
+
+	// ipAddr is an IP address used within the Source Link-Layer Address option.
+	// See RFC 4861, section 4.6.1.
+	ipAddr net.IP
+
+	// dnsIPAddr is an IP address used within the DNS Server option.
+	dnsIPAddr net.IP
+
+	// prefixIPAddr is an IP address used within the Prefix Information option.
+	// See RFC 4861, section 4.6.2.
+	prefixIPAddr net.IP
+
+	// ifaceName is the name of the interface used as a scope of the IP
+	// addresses.
+	ifaceName string
+
+	// iface is the network interface used to send the ICMPv6 packets.
+	iface *net.Interface
+
+	// packetSendPeriod is the interval between sending the ICMPv6 packets.
+	packetSendPeriod time.Duration
+
+	// conn is the ICMPv6 socket.
+	conn *icmp.PacketConn
+
+	// stop is used to stop the packet sending loop.
+	stop atomic.Value
+}
 
 type icmpv6RA struct {
 	managedAddressConfiguration bool
@@ -307,3 +308,15 @@ func createICMPv6RAPacket(params icmpv6RA) (data []byte, err error) {
 //
 // 	return nil
 // }
+
+// Init initializes RA module.
+func (ra *raCtx) Init() (err error) {
+	// TODO(e.burkov): Implement or remove this method.
+	return nil
+}
+
+// Close closes the module.
+func (ra *raCtx) Close() (err error) {
+	// TODO(e.burkov): Implement or remove this method.
+	return nil
+}
