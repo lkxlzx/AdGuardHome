@@ -234,7 +234,33 @@ type Config struct {
 	// PrefetchMaxConcurrentRefresh is the maximum number of concurrent domain
 	// refresh operations allowed. This prevents resource exhaustion.
 	// Default: 50. Range: 10-200.
+	// DEPRECATED: Use PrefetchSoftLimit instead.
 	PrefetchMaxConcurrentRefresh int `yaml:"prefetch_max_concurrent_refresh"`
+
+	// PrefetchSoftLimit is the soft limit for concurrent refresh operations.
+	// Under normal conditions, the system will not exceed this limit.
+	// Default: 50. Range: 10-500.
+	PrefetchSoftLimit int `yaml:"prefetch_soft_limit"`
+
+	// PrefetchHardLimit is the hard limit for concurrent refresh operations.
+	// Even urgent tasks will not exceed this limit (except critical cases).
+	// Default: 150. Range: 50-1000.
+	PrefetchHardLimit int `yaml:"prefetch_hard_limit"`
+
+	// PrefetchUrgentQueueSize is the size of the urgent task queue.
+	// Tasks with high priority (expiring soon) go into this queue.
+	// Default: 500. Range: 100-5000.
+	PrefetchUrgentQueueSize int `yaml:"prefetch_urgent_queue_size"`
+
+	// PrefetchNormalQueueSize is the size of the normal task queue.
+	// Tasks with normal priority go into this queue.
+	// Default: 2000. Range: 500-10000.
+	PrefetchNormalQueueSize int `yaml:"prefetch_normal_queue_size"`
+
+	// PrefetchUrgentThreshold is the priority threshold for urgent tasks.
+	// Tasks with priority >= this value are treated as urgent.
+	// Default: 70. Range: 50-90.
+	PrefetchUrgentThreshold int `yaml:"prefetch_urgent_threshold"`
 
 	// Other settings
 

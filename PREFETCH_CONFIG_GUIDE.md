@@ -57,15 +57,27 @@ dns:
   # 建议: "1h" (大多数场景)
   prefetch_cleanup_interval: "1h"
   
-  # 最大并发刷新数
-  # 限制同时进行的域名刷新操作数量
-  # 范围: 10-200
-  # 默认: 50
-  # 建议:
-  #   - 低性能设备: 20-30
-  #   - 普通设备: 50
-  #   - 高性能服务器: 100-150
-  prefetch_max_concurrent_refresh: 50
+  # ========== 动态并发控制（推荐） ==========
+  
+  # 软限制 - 正常并发数
+  # 范围: 10-500, 默认: 50
+  prefetch_soft_limit: 50
+  
+  # 硬限制 - 最大并发数
+  # 范围: 50-1000, 默认: 150
+  prefetch_hard_limit: 150
+  
+  # 紧急队列大小
+  # 范围: 100-5000, 默认: 500
+  prefetch_urgent_queue_size: 500
+  
+  # 正常队列大小
+  # 范围: 500-10000, 默认: 2000
+  prefetch_normal_queue_size: 2000
+  
+  # 紧急优先级阈值
+  # 范围: 50-90, 默认: 70
+  prefetch_urgent_threshold: 70
 ```
 
 ## 配置示例
@@ -79,7 +91,11 @@ dns:
   prefetch_time_window: "1h"
   prefetch_max_entries: 10000
   prefetch_cleanup_interval: "1h"
-  prefetch_max_concurrent_refresh: 50
+  prefetch_soft_limit: 30
+  prefetch_hard_limit: 80
+  prefetch_urgent_queue_size: 200
+  prefetch_normal_queue_size: 1000
+  prefetch_urgent_threshold: 70
 ```
 
 **适用场景**:
@@ -98,7 +114,11 @@ dns:
   prefetch_time_window: "2h"
   prefetch_max_entries: 20000
   prefetch_cleanup_interval: "1h"
-  prefetch_max_concurrent_refresh: 80
+  prefetch_soft_limit: 50
+  prefetch_hard_limit: 150
+  prefetch_urgent_queue_size: 500
+  prefetch_normal_queue_size: 2000
+  prefetch_urgent_threshold: 70
 ```
 
 **适用场景**:
@@ -117,7 +137,11 @@ dns:
   prefetch_time_window: "30m"
   prefetch_max_entries: 50000
   prefetch_cleanup_interval: "30m"
-  prefetch_max_concurrent_refresh: 150
+  prefetch_soft_limit: 100
+  prefetch_hard_limit: 300
+  prefetch_urgent_queue_size: 1000
+  prefetch_normal_queue_size: 5000
+  prefetch_urgent_threshold: 70
 ```
 
 **适用场景**:
@@ -136,7 +160,11 @@ dns:
   prefetch_time_window: "1h"
   prefetch_max_entries: 5000
   prefetch_cleanup_interval: "2h"
-  prefetch_max_concurrent_refresh: 20
+  prefetch_soft_limit: 20
+  prefetch_hard_limit: 50
+  prefetch_urgent_queue_size: 100
+  prefetch_normal_queue_size: 500
+  prefetch_urgent_threshold: 70
 ```
 
 **适用场景**:

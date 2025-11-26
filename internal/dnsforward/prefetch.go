@@ -5,11 +5,33 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/miekg/dns"
 )
+
+// RefreshTask represents a domain refresh task with priority.
+type RefreshTask struct {
+	Domain      string
+	ExpireTime  time.Time
+	Priority    int
+	EnqueueTime time.Time
+}
+
+// PrefetchMetrics contains statistics about prefetch operations.
+type PrefetchMetrics struct {
+	CurrentActive   atomic.Int32 // Current active tasks
+	SoftLimitHits   atomic.Int64 // Times soft limit was hit
+	HardLimitHits   atomic.Int64 // Times hard limit was hit
+	UrgentQueueSize atomic.Int32 // Urgent queue length
+	NormalQueueSize atomic.Int32 // Normal queue length
+	TasksUpgraded   atomic.Int64 // Tasks upgraded to urgent
+	TasksDropped    atomic.Int64 // Tasks dropped
+	TasksCompleted  atomic.Int64 // Completed tasks
+	TasksFailed     atomic.Int64 // Failed tasks
+}
 
 // domainShard represents a shard of the domain tracking maps.
 // Using sharded maps reduces lock contention in high-concurrency scenarios.
@@ -45,14 +67,23 @@ type PrefetchManager struct {
 	// cleanupInterval is the interval between cleanup operations.
 	cleanupInterval time.Duration
 
-	// maxConcurrentRefresh is the maximum number of concurrent refresh operations.
-	maxConcurrentRefresh int
+	// Dynamic concurrency control
+	softLimit        int // Soft limit for concurrent operations
+	hardLimit        int // Hard limit for concurrent operations
+	urgentThreshold  int // Priority threshold for urgent tasks
+
+	// Task queues
+	urgentQueue chan *RefreshTask // High priority queue
+	normalQueue chan *RefreshTask // Normal priority queue
+
+	// Metrics
+	metrics *PrefetchMetrics
 
 	// stopCh is used to signal the worker to stop.
 	stopCh chan struct{}
 
-	// refreshSem limits concurrent refresh operations.
-	refreshSem chan struct{}
+	// Worker control
+	workerWg sync.WaitGroup
 }
 
 // NewPrefetchManager creates a new PrefetchManager with configuration from server.
@@ -80,21 +111,56 @@ func NewPrefetchManager(s *Server) *PrefetchManager {
 		cleanupInterval = 1 * time.Hour // Default: 1 hour
 	}
 
-	maxConcurrentRefresh := conf.PrefetchMaxConcurrentRefresh
-	if maxConcurrentRefresh < 10 || maxConcurrentRefresh > 200 {
-		maxConcurrentRefresh = 50 // Default: 50 concurrent operations
+	// Dynamic concurrency configuration
+	softLimit := conf.PrefetchSoftLimit
+	if softLimit <= 0 {
+		// Fallback to old config for backward compatibility
+		softLimit = conf.PrefetchMaxConcurrentRefresh
+	}
+	if softLimit < 10 || softLimit > 500 {
+		softLimit = 50 // Default: 50
+	}
+
+	hardLimit := conf.PrefetchHardLimit
+	if hardLimit <= 0 {
+		hardLimit = softLimit * 3 // Default: 3x soft limit
+	}
+	if hardLimit < 50 || hardLimit > 1000 {
+		hardLimit = 150 // Default: 150
+	}
+	if hardLimit < softLimit {
+		hardLimit = softLimit * 2 // Ensure hard limit > soft limit
+	}
+
+	urgentQueueSize := conf.PrefetchUrgentQueueSize
+	if urgentQueueSize <= 0 {
+		urgentQueueSize = 500 // Default: 500
+	}
+
+	normalQueueSize := conf.PrefetchNormalQueueSize
+	if normalQueueSize <= 0 {
+		normalQueueSize = 2000 // Default: 2000
+	}
+
+	urgentThreshold := conf.PrefetchUrgentThreshold
+	if urgentThreshold <= 0 || urgentThreshold > 90 {
+		urgentThreshold = 70 // Default: 70
 	}
 
 	pm := &PrefetchManager{
-		logger:               s.logger.With(slogutil.KeyPrefix, "prefetch"),
-		server:               s,
-		threshold:            threshold,
-		timeWindow:           timeWindow,
-		maxEntries:           maxEntries,
-		cleanupInterval:      cleanupInterval,
-		maxConcurrentRefresh: maxConcurrentRefresh,
-		stopCh:               make(chan struct{}),
-		refreshSem:           make(chan struct{}, maxConcurrentRefresh),
+		logger:          s.logger.With(slogutil.KeyPrefix, "prefetch"),
+		server:          s,
+		threshold:       threshold,
+		timeWindow:      timeWindow,
+		maxEntries:      maxEntries,
+		cleanupInterval: cleanupInterval,
+		softLimit:       softLimit,
+		hardLimit:       hardLimit,
+		urgentThreshold: urgentThreshold,
+		urgentQueue:     make(chan *RefreshTask, urgentQueueSize),
+		normalQueue:     make(chan *RefreshTask, normalQueueSize),
+		metrics:         &PrefetchMetrics{},
+		stopCh:          make(chan struct{}),
 	}
 
 	// Initialize shards
@@ -112,19 +178,47 @@ func NewPrefetchManager(s *Server) *PrefetchManager {
 		"time_window", timeWindow,
 		"max_entries", maxEntries,
 		"cleanup_interval", cleanupInterval,
-		"max_concurrent_refresh", maxConcurrentRefresh)
+		"soft_limit", softLimit,
+		"hard_limit", hardLimit,
+		"urgent_threshold", urgentThreshold,
+		"urgent_queue_size", urgentQueueSize,
+		"normal_queue_size", normalQueueSize)
 
 	return pm
 }
 
-// Start starts the background worker.
+// Start starts the background workers.
 func (pm *PrefetchManager) Start() {
-	go pm.worker()
+	// Start multiple workers for better concurrency
+	numWorkers := pm.softLimit / 10
+	if numWorkers < 2 {
+		numWorkers = 2
+	}
+	if numWorkers > 10 {
+		numWorkers = 10
+	}
+
+	pm.logger.Info("starting prefetch workers", "count", numWorkers)
+
+	for i := 0; i < numWorkers; i++ {
+		pm.workerWg.Add(1)
+		go pm.worker(i)
+	}
+
+	// Start cleanup worker
+	pm.workerWg.Add(1)
+	go pm.cleanupWorker()
+
+	// Start metrics logger
+	pm.workerWg.Add(1)
+	go pm.metricsLogger()
 }
 
-// Stop stops the background worker.
+// Stop stops all background workers.
 func (pm *PrefetchManager) Stop() {
 	close(pm.stopCh)
+	pm.workerWg.Wait()
+	pm.logger.Info("prefetch manager stopped")
 }
 
 // getShard returns the shard for a given domain using a simple hash function.
@@ -205,34 +299,200 @@ func (pm *PrefetchManager) Record(domain string, ttl uint32) {
 	}
 }
 
-// worker periodically checks for expired domains and refreshes them.
-func (pm *PrefetchManager) worker() {
+// calculatePriority calculates the priority of a refresh task based on time until expiration.
+// Returns 0-100, where higher values indicate higher priority.
+func (pm *PrefetchManager) calculatePriority(expireTime time.Time, now time.Time) int {
+	timeUntilExpire := expireTime.Sub(now)
+
+	if timeUntilExpire <= 0 {
+		return 100 // Already expired, highest priority
+	}
+
+	if timeUntilExpire <= 5*time.Second {
+		return 90 // Expiring in 5 seconds, very high priority
+	}
+
+	if timeUntilExpire <= 30*time.Second {
+		return 70 // Expiring in 30 seconds, high priority
+	}
+
+	if timeUntilExpire <= 2*time.Minute {
+		return 50 // Expiring in 2 minutes, medium priority
+	}
+
+	return 30 // Normal priority
+}
+
+// scheduleTask adds a task to the appropriate queue based on priority.
+func (pm *PrefetchManager) scheduleTask(task *RefreshTask) {
+	task.Priority = pm.calculatePriority(task.ExpireTime, time.Now())
+	task.EnqueueTime = time.Now()
+
+	if task.Priority >= pm.urgentThreshold {
+		select {
+		case pm.urgentQueue <- task:
+			pm.metrics.UrgentQueueSize.Add(1)
+		default:
+			pm.logger.Warn("urgent queue full, dropping task", "domain", task.Domain)
+			pm.metrics.TasksDropped.Add(1)
+		}
+	} else {
+		select {
+		case pm.normalQueue <- task:
+			pm.metrics.NormalQueueSize.Add(1)
+		default:
+			pm.logger.Warn("normal queue full, dropping task", "domain", task.Domain)
+			pm.metrics.TasksDropped.Add(1)
+		}
+	}
+}
+
+// worker processes tasks from both queues with dynamic concurrency control.
+func (pm *PrefetchManager) worker(id int) {
+	defer pm.workerWg.Done()
+
+	pm.logger.Debug("worker started", "id", id)
+
+	for {
+		select {
+		case <-pm.stopCh:
+			pm.logger.Debug("worker stopped", "id", id)
+			return
+
+		case task := <-pm.urgentQueue:
+			pm.metrics.UrgentQueueSize.Add(-1)
+			pm.executeTask(task, true)
+
+		case task := <-pm.normalQueue:
+			pm.metrics.NormalQueueSize.Add(-1)
+
+			// Check soft limit for normal tasks
+			current := pm.metrics.CurrentActive.Load()
+			if current >= int32(pm.softLimit) {
+				pm.metrics.SoftLimitHits.Add(1)
+
+				// Re-evaluate priority
+				newPriority := pm.calculatePriority(task.ExpireTime, time.Now())
+				if newPriority >= pm.urgentThreshold {
+					// Upgrade to urgent
+					pm.metrics.TasksUpgraded.Add(1)
+					pm.logger.Debug("task upgraded to urgent",
+						"domain", task.Domain,
+						"old_priority", task.Priority,
+						"new_priority", newPriority)
+
+					task.Priority = newPriority
+					select {
+					case pm.urgentQueue <- task:
+						pm.metrics.UrgentQueueSize.Add(1)
+					default:
+						pm.logger.Warn("urgent queue full after upgrade", "domain", task.Domain)
+						pm.metrics.TasksDropped.Add(1)
+					}
+					continue
+				}
+
+				// Wait a bit and re-queue
+				time.Sleep(100 * time.Millisecond)
+				select {
+				case pm.normalQueue <- task:
+					pm.metrics.NormalQueueSize.Add(1)
+				default:
+					pm.logger.Warn("normal queue full on re-queue", "domain", task.Domain)
+					pm.metrics.TasksDropped.Add(1)
+				}
+				continue
+			}
+
+			pm.executeTask(task, false)
+		}
+	}
+}
+
+// executeTask executes a refresh task with concurrency control.
+func (pm *PrefetchManager) executeTask(task *RefreshTask, isUrgent bool) {
+	current := pm.metrics.CurrentActive.Add(1)
+	defer pm.metrics.CurrentActive.Add(-1)
+
+	// Check hard limit
+	if current > int32(pm.hardLimit) {
+		pm.metrics.HardLimitHits.Add(1)
+		pm.logger.Warn("exceeded hard limit",
+			"current", current,
+			"limit", pm.hardLimit,
+			"domain", task.Domain,
+			"urgent", isUrgent)
+
+		// Drop non-urgent tasks that exceed hard limit
+		if !isUrgent {
+			pm.metrics.TasksDropped.Add(1)
+			return
+		}
+	}
+
+	// Execute refresh in goroutine
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				pm.logger.Error("task panic", "domain", task.Domain, "error", r)
+				pm.metrics.TasksFailed.Add(1)
+			}
+		}()
+
+		// Record wait time
+		waitTime := time.Since(task.EnqueueTime)
+		if waitTime > 5*time.Second {
+			pm.logger.Warn("long wait time",
+				"domain", task.Domain,
+				"wait", waitTime,
+				"priority", task.Priority)
+		}
+
+		// Perform refresh
+		err := pm.refresh(task.Domain)
+		if err != nil {
+			pm.logger.Warn("refresh failed", "domain", task.Domain, "err", err)
+			pm.metrics.TasksFailed.Add(1)
+		} else {
+			pm.metrics.TasksCompleted.Add(1)
+			pm.logger.Debug("refresh completed",
+				"domain", task.Domain,
+				"wait", waitTime,
+				"priority", task.Priority)
+		}
+	}()
+}
+
+// cleanupWorker periodically scans for domains that need refreshing.
+func (pm *PrefetchManager) cleanupWorker() {
+	defer pm.workerWg.Done()
+
 	refreshTicker := time.NewTicker(10 * time.Second)
 	cleanupTicker := time.NewTicker(pm.cleanupInterval)
 	defer refreshTicker.Stop()
 	defer cleanupTicker.Stop()
 
-	pm.logger.Debug("prefetch worker started",
-		"refresh_interval", "10s",
-		"cleanup_interval", pm.cleanupInterval)
+	pm.logger.Debug("cleanup worker started")
 
 	for {
 		select {
 		case <-pm.stopCh:
-			pm.logger.Info("prefetch worker stopped")
+			pm.logger.Debug("cleanup worker stopped")
 			return
+
 		case <-refreshTicker.C:
 			pm.checkAndRefresh()
+
 		case <-cleanupTicker.C:
 			pm.cleanup()
 		}
 	}
 }
 
-// checkAndRefresh scans for expired domains and triggers a refresh.
+// checkAndRefresh scans for expired domains and schedules refresh tasks.
 func (pm *PrefetchManager) checkAndRefresh() {
 	now := time.Now()
-	var toRefresh []string
+	var tasks []*RefreshTask
 
 	// Scan all shards
 	for _, shard := range pm.shards {
@@ -240,30 +500,26 @@ func (pm *PrefetchManager) checkAndRefresh() {
 		for domain, expiry := range shard.domains {
 			// If expired or about to expire (within 5 seconds)
 			if now.After(expiry) || now.Add(5*time.Second).After(expiry) {
-				toRefresh = append(toRefresh, domain)
-				// Remove from domains map to prevent immediate re-querying
+				tasks = append(tasks, &RefreshTask{
+					Domain:     domain,
+					ExpireTime: expiry,
+				})
+				// Remove from domains map to prevent duplicate scheduling
 				delete(shard.domains, domain)
 			}
 		}
 		shard.mu.Unlock()
 	}
 
-	if len(toRefresh) == 0 {
+	if len(tasks) == 0 {
 		return
 	}
 
-	pm.logger.Debug("refreshing hot domains", "count", len(toRefresh))
+	pm.logger.Debug("scheduling refresh tasks", "count", len(tasks))
 
-	// Refresh domains with concurrency limit
-	for _, domain := range toRefresh {
-		domain := domain // Capture loop variable
-		go func() {
-			// Acquire semaphore to limit concurrent refreshes
-			pm.refreshSem <- struct{}{}
-			defer func() { <-pm.refreshSem }()
-
-			pm.refresh(domain)
-		}()
+	// Schedule all tasks
+	for _, task := range tasks {
+		pm.scheduleTask(task)
 	}
 }
 
@@ -327,7 +583,7 @@ func (pm *PrefetchManager) cleanup() {
 }
 
 // refresh sends a DNS query to the server itself to trigger a cache update.
-func (pm *PrefetchManager) refresh(domain string) {
+func (pm *PrefetchManager) refresh(domain string) error {
 	// Create a local DNS client
 	c := new(dns.Client)
 	c.Timeout = 5 * time.Second
@@ -336,14 +592,7 @@ func (pm *PrefetchManager) refresh(domain string) {
 	m.SetQuestion(domain, dns.TypeA)
 	m.RecursionDesired = true
 
-	// Send query to localhost
-	// We need to know the listening port. Assuming default or first configured.
-	// For simplicity, we can try to use the internal Resolve method directly
-	// to avoid network stack overhead and port discovery issues.
-	// However, calling Server.Resolve bypasses some logic.
-	// Let's try to use the network if possible, or fall back to internal processing.
-
-	// Using network loopback is safer to simulate a real client and trigger full processing chain.
+	// Using network loopback to simulate a real client and trigger full processing chain.
 	port := "53"
 	if len(pm.server.conf.UDPListenAddrs) > 0 {
 		port = fmt.Sprintf("%d", pm.server.conf.UDPListenAddrs[0].Port)
@@ -353,12 +602,7 @@ func (pm *PrefetchManager) refresh(domain string) {
 	target := net.JoinHostPort("127.0.0.1", port)
 
 	_, _, err := c.Exchange(m, target)
-	if err != nil {
-		// Upgrade to Warn level for production visibility
-		pm.logger.Warn("failed to refresh domain", "domain", domain, "err", err)
-	} else {
-		pm.logger.Debug("refreshed domain", "domain", domain)
-	}
+	return err
 }
 
 // GetStats returns statistics about the prefetch manager.
@@ -373,4 +617,60 @@ func (pm *PrefetchManager) GetStats() (hits, domains, tracked int) {
 	}
 	
 	return hits, domains, tracked
+}
+
+// metricsLogger periodically logs metrics for monitoring.
+func (pm *PrefetchManager) metricsLogger() {
+	defer pm.workerWg.Done()
+
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-pm.stopCh:
+			return
+		case <-ticker.C:
+			pm.logMetrics()
+		}
+	}
+}
+
+// logMetrics logs current metrics.
+func (pm *PrefetchManager) logMetrics() {
+	hits, domains, tracked := pm.GetStats()
+
+	pm.logger.Info("prefetch metrics",
+		"active_tasks", pm.metrics.CurrentActive.Load(),
+		"urgent_queue", pm.metrics.UrgentQueueSize.Load(),
+		"normal_queue", pm.metrics.NormalQueueSize.Load(),
+		"soft_limit_hits", pm.metrics.SoftLimitHits.Load(),
+		"hard_limit_hits", pm.metrics.HardLimitHits.Load(),
+		"tasks_upgraded", pm.metrics.TasksUpgraded.Load(),
+		"tasks_dropped", pm.metrics.TasksDropped.Load(),
+		"tasks_completed", pm.metrics.TasksCompleted.Load(),
+		"tasks_failed", pm.metrics.TasksFailed.Load(),
+		"tracked_hits", hits,
+		"hot_domains", domains,
+		"tracked_domains", tracked)
+}
+
+// GetMetrics returns a snapshot of current metrics.
+func (pm *PrefetchManager) GetMetrics() map[string]int64 {
+	hits, domains, tracked := pm.GetStats()
+
+	return map[string]int64{
+		"current_active":   int64(pm.metrics.CurrentActive.Load()),
+		"urgent_queue":     int64(pm.metrics.UrgentQueueSize.Load()),
+		"normal_queue":     int64(pm.metrics.NormalQueueSize.Load()),
+		"soft_limit_hits":  pm.metrics.SoftLimitHits.Load(),
+		"hard_limit_hits":  pm.metrics.HardLimitHits.Load(),
+		"tasks_upgraded":   pm.metrics.TasksUpgraded.Load(),
+		"tasks_dropped":    pm.metrics.TasksDropped.Load(),
+		"tasks_completed":  pm.metrics.TasksCompleted.Load(),
+		"tasks_failed":     pm.metrics.TasksFailed.Load(),
+		"tracked_hits":     int64(hits),
+		"hot_domains":      int64(domains),
+		"tracked_domains":  int64(tracked),
+	}
 }
