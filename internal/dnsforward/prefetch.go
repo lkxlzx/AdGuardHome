@@ -18,6 +18,8 @@ type domainShard struct {
 	domains    map[string]time.Time
 	hits       map[string]int
 	lastAccess map[string]time.Time
+	// hitTimestamps stores the timestamps of each hit for time window calculation
+	hitTimestamps map[string][]time.Time
 }
 
 // PrefetchManager handles active cache warming for hot domains.
@@ -32,9 +34,19 @@ type PrefetchManager struct {
 	// threshold is the number of hits required to consider a domain "hot".
 	threshold int
 
+	// timeWindow is the time window for counting hits.
+	// Only hits within this window are counted towards the threshold.
+	timeWindow time.Duration
+
 	// maxEntries is the maximum number of entries to track.
 	// When exceeded, cleanup will be triggered.
 	maxEntries int
+
+	// cleanupInterval is the interval between cleanup operations.
+	cleanupInterval time.Duration
+
+	// maxConcurrentRefresh is the maximum number of concurrent refresh operations.
+	maxConcurrentRefresh int
 
 	// stopCh is used to signal the worker to stop.
 	stopCh chan struct{}
@@ -43,25 +55,64 @@ type PrefetchManager struct {
 	refreshSem chan struct{}
 }
 
-// NewPrefetchManager creates a new PrefetchManager.
+// NewPrefetchManager creates a new PrefetchManager with configuration from server.
 func NewPrefetchManager(s *Server) *PrefetchManager {
+	conf := s.conf
+
+	// Apply configuration with defaults
+	threshold := conf.PrefetchThreshold
+	if threshold <= 0 || threshold > 100 {
+		threshold = 5 // Default: 5 hits
+	}
+
+	timeWindow := time.Duration(conf.PrefetchTimeWindow)
+	if timeWindow <= 0 {
+		timeWindow = 1 * time.Hour // Default: 1 hour
+	}
+
+	maxEntries := conf.PrefetchMaxEntries
+	if maxEntries < 1000 || maxEntries > 100000 {
+		maxEntries = 10000 // Default: 10,000 entries
+	}
+
+	cleanupInterval := time.Duration(conf.PrefetchCleanupInterval)
+	if cleanupInterval <= 0 {
+		cleanupInterval = 1 * time.Hour // Default: 1 hour
+	}
+
+	maxConcurrentRefresh := conf.PrefetchMaxConcurrentRefresh
+	if maxConcurrentRefresh < 10 || maxConcurrentRefresh > 200 {
+		maxConcurrentRefresh = 50 // Default: 50 concurrent operations
+	}
+
 	pm := &PrefetchManager{
-		logger:     s.logger.With(slogutil.KeyPrefix, "prefetch"),
-		server:     s,
-		threshold:  5,     // Default threshold: 5 hits to be considered "hot"
-		maxEntries: 10000, // Maximum 10,000 tracked domains to prevent memory leaks
-		stopCh:     make(chan struct{}),
-		refreshSem: make(chan struct{}, 50), // Limit to 50 concurrent refresh operations
+		logger:               s.logger.With(slogutil.KeyPrefix, "prefetch"),
+		server:               s,
+		threshold:            threshold,
+		timeWindow:           timeWindow,
+		maxEntries:           maxEntries,
+		cleanupInterval:      cleanupInterval,
+		maxConcurrentRefresh: maxConcurrentRefresh,
+		stopCh:               make(chan struct{}),
+		refreshSem:           make(chan struct{}, maxConcurrentRefresh),
 	}
 
 	// Initialize shards
 	for i := range pm.shards {
 		pm.shards[i] = &domainShard{
-			domains:    make(map[string]time.Time),
-			hits:       make(map[string]int),
-			lastAccess: make(map[string]time.Time),
+			domains:       make(map[string]time.Time),
+			hits:          make(map[string]int),
+			lastAccess:    make(map[string]time.Time),
+			hitTimestamps: make(map[string][]time.Time),
 		}
 	}
+
+	s.logger.Info("prefetch manager initialized",
+		"threshold", threshold,
+		"time_window", timeWindow,
+		"max_entries", maxEntries,
+		"cleanup_interval", cleanupInterval,
+		"max_concurrent_refresh", maxConcurrentRefresh)
 
 	return pm
 }
@@ -112,14 +163,32 @@ func (pm *PrefetchManager) Record(domain string, ttl uint32) {
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
 
-	// Update hit count and last access time
-	shard.hits[domain]++
+	// Add current timestamp to hit history
+	timestamps := shard.hitTimestamps[domain]
+	timestamps = append(timestamps, now)
+
+	// Remove timestamps outside the time window
+	cutoff := now.Add(-pm.timeWindow)
+	validTimestamps := make([]time.Time, 0, len(timestamps))
+	for _, ts := range timestamps {
+		if ts.After(cutoff) {
+			validTimestamps = append(validTimestamps, ts)
+		}
+	}
+	shard.hitTimestamps[domain] = validTimestamps
+
+	// Update hit count based on valid timestamps within time window
+	hitCount := len(validTimestamps)
+	shard.hits[domain] = hitCount
 	shard.lastAccess[domain] = now
 
 	// Only track if it exceeds the threshold
-	if shard.hits[domain] >= pm.threshold {
+	if hitCount >= pm.threshold {
 		// Calculate expiration time
 		shard.domains[domain] = now.Add(time.Duration(ttl) * time.Second)
+	} else {
+		// Remove from hot domains if it falls below threshold
+		delete(shard.domains, domain)
 	}
 
 	// Check if we need cleanup (check periodically, not every time)
@@ -139,13 +208,18 @@ func (pm *PrefetchManager) Record(domain string, ttl uint32) {
 // worker periodically checks for expired domains and refreshes them.
 func (pm *PrefetchManager) worker() {
 	refreshTicker := time.NewTicker(10 * time.Second)
-	cleanupTicker := time.NewTicker(1 * time.Hour) // Cleanup every hour
+	cleanupTicker := time.NewTicker(pm.cleanupInterval)
 	defer refreshTicker.Stop()
 	defer cleanupTicker.Stop()
+
+	pm.logger.Debug("prefetch worker started",
+		"refresh_interval", "10s",
+		"cleanup_interval", pm.cleanupInterval)
 
 	for {
 		select {
 		case <-pm.stopCh:
+			pm.logger.Info("prefetch worker stopped")
 			return
 		case <-refreshTicker.C:
 			pm.checkAndRefresh()
@@ -232,6 +306,7 @@ func (pm *PrefetchManager) cleanup() {
 				delete(shard.hits, domain)
 				delete(shard.domains, domain)
 				delete(shard.lastAccess, domain)
+				delete(shard.hitTimestamps, domain)
 				removed++
 			}
 		}

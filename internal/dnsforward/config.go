@@ -203,6 +203,39 @@ type Config struct {
 	// If 0 or negative, the default capacity of 1000 is used.
 	DomainCacheSize int `yaml:"domain_cache_size"`
 
+	// Prefetch settings
+
+	// PrefetchEnabled defines if DNS prefetch (cache warming) is enabled.
+	// When enabled, frequently accessed domains will be automatically refreshed
+	// before their cache entries expire.
+	PrefetchEnabled bool `yaml:"prefetch_enabled"`
+
+	// PrefetchThreshold is the minimum number of hits required for a domain
+	// to be considered "hot" and eligible for prefetching.
+	// Default: 5. Range: 1-100.
+	PrefetchThreshold int `yaml:"prefetch_threshold"`
+
+	// PrefetchTimeWindow is the time window for counting hits.
+	// Only hits within this time window are counted towards the threshold.
+	// Format: duration string (e.g., "1h", "30m", "24h").
+	// Default: "1h" (1 hour).
+	PrefetchTimeWindow timeutil.Duration `yaml:"prefetch_time_window"`
+
+	// PrefetchMaxEntries is the maximum number of domains to track for prefetching.
+	// This prevents unbounded memory growth.
+	// Default: 10000. Range: 1000-100000.
+	PrefetchMaxEntries int `yaml:"prefetch_max_entries"`
+
+	// PrefetchCleanupInterval is the interval between automatic cleanup operations
+	// to remove stale entries. Format: duration string (e.g., "1h", "30m").
+	// Default: "1h".
+	PrefetchCleanupInterval timeutil.Duration `yaml:"prefetch_cleanup_interval"`
+
+	// PrefetchMaxConcurrentRefresh is the maximum number of concurrent domain
+	// refresh operations allowed. This prevents resource exhaustion.
+	// Default: 50. Range: 10-200.
+	PrefetchMaxConcurrentRefresh int `yaml:"prefetch_max_concurrent_refresh"`
+
 	// Other settings
 
 	// BogusNXDomain is the list of IP addresses, responses with them will be

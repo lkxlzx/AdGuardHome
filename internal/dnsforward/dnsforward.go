@@ -284,6 +284,7 @@ func NewServer(p DNSCreateParams) (s *Server, err error) {
 		},
 	}
 
+	// Initialize prefetch manager (will be started later if enabled)
 	s.prefetch = NewPrefetchManager(s)
 
 	s.sysResolvers, err = sysresolv.NewSystemResolvers(nil, defaultPlainDNSPort)
@@ -509,7 +510,14 @@ func (s *Server) startLocked(ctx context.Context) error {
 	err := s.dnsProxy.Start(ctx)
 	if err == nil {
 		s.isRunning = true
-		s.prefetch.Start()
+		
+		// Start prefetch worker if enabled
+		if s.conf.PrefetchEnabled {
+			s.prefetch.Start()
+			s.logger.Info("prefetch enabled and started")
+		} else {
+			s.logger.Info("prefetch disabled")
+		}
 	}
 
 	return err
