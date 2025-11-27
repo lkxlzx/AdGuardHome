@@ -32,6 +32,7 @@ const (
 	filteringStatusBlockedSafebrowsing = "blocked_safebrowsing" // blocked by safebrowsing
 	filteringStatusBlockedParental     = "blocked_parental"     // blocked by parental control
 	filteringStatusWhitelisted         = "whitelisted"          // whitelisted
+	filteringStatusDNSRouting          = "dns_routing"          // DNS routing
 	filteringStatusRewritten           = "rewritten"            // all kinds of rewrites
 	filteringStatusSafeSearch          = "safe_search"          // enforced safe search
 	filteringStatusProcessed           = "processed"            // not blocked, not white-listed entries
@@ -41,7 +42,7 @@ const (
 var filteringStatusValues = []string{
 	filteringStatusAll, filteringStatusFiltered, filteringStatusBlocked,
 	filteringStatusBlockedService, filteringStatusBlockedSafebrowsing, filteringStatusBlockedParental,
-	filteringStatusWhitelisted, filteringStatusRewritten, filteringStatusSafeSearch,
+	filteringStatusWhitelisted, filteringStatusDNSRouting, filteringStatusRewritten, filteringStatusSafeSearch,
 	filteringStatusProcessed,
 }
 
@@ -173,6 +174,8 @@ func (c *searchCriterion) ctFilteringStatusCase(
 		return isFiltered && c.isFilteredWithReason(reason)
 	case filteringStatusWhitelisted:
 		return reason == filtering.NotFilteredAllowList
+	case filteringStatusDNSRouting:
+		return reason == filtering.NotFilteredDNSRouting
 	case filteringStatusRewritten:
 		return reason.In(
 			filtering.Rewritten,

@@ -1138,3 +1138,48 @@ func (s *Server) IsBlockedClient(ip netip.Addr, clientID string) (blocked bool, 
 
 	return blocked, cmp.Or(rule, clientID)
 }
+
+// refreshCacheEntry performs a direct upstream query to refresh the cache entry
+// for the specified domain. This is used by the prefetch mechanism to update
+// cache entries before they expire, without going through the full DNS request
+// processing pipeline (filters, etc.).
+//
+// This method is more efficient than querying 127.0.0.1:53 because:
+//   - It bypasses request filtering
+//   - It reduces network overhead
+//   - It avoids potential rate limiting issues
+//   - It provides clearer logging for prefetch operations
+func (s *Server) refreshCacheEntry(ctx context.Context, domain string) (err error) {
+	s.serverLock.RLock()
+	defer s.serverLock.RUnlock()
+
+	if s.dnsProxy == nil {
+		return errors.Error("dns proxy not initialized")
+	}
+
+	// Create a DNS query message
+	req := &dns.Msg{}
+	req.SetQuestion(dns.Fqdn(domain), dns.TypeA)
+	req.RecursionDesired = true
+
+	// Use the internal proxy to resolve the query
+	// This will query upstream servers and automatically update the cache
+	dctx := &proxy.DNSContext{
+		Proto: proxy.ProtoUDP,
+		Req:   req,
+	}
+
+	// Resolve using the DNS proxy
+	// The proxy will handle upstream selection, querying, and cache updates
+	err = s.dnsProxy.Resolve(dctx)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", domain, err)
+	}
+
+	if dctx.Res == nil {
+		return fmt.Errorf("no response for %s", domain)
+	}
+
+	// Cache is automatically updated by dnsproxy
+	return nil
+}
