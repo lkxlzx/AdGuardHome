@@ -318,23 +318,97 @@ ls dist_dns_routing_fix/
 # 本地文件仍然存在
 ```
 
+## 第二次清理（测试脚本）
+
+**清理时间：** 2025-11-27  
+**提交哈希：** 01d9e3a6
+
+### 移除的测试脚本（29个）
+
+#### 基准测试脚本（2个）
+- `benchmark_dns.ps1`
+- `benchmark_lru_cleanup.ps1`
+
+#### 诊断脚本（2个）
+- `diagnose_cache_issue.ps1`
+- `diagnose_prefetch.ps1`
+
+#### 压力测试脚本（3个）
+- `stress-test-comprehensive.ps1`
+- `stress-test-software-performance.ps1`
+- `stress-test-software.ps1`
+
+#### 测试脚本（21个）
+- `test-binaries.ps1`
+- `test_cache_api.ps1`
+- `test_cache_api_interactive.ps1`
+- `test_cache_hit_bypass_threshold.ps1`
+- `test_cache_hit_prefetch.ps1`
+- `test_cache_minutes.ps1`
+- `test_dashboard_v2.ps1`
+- `test_dns_routing_filter.ps1`
+- `test_lru_cleanup.ps1`
+- `test_lru_cleanup_quick.ps1`
+- `test_lru_simple.ps1`
+- `test_prefetch.ps1`
+- `test_prefetch_correct.ps1`
+- `test_prefetch_detailed.ps1`
+- `test_prefetch_final.ps1`
+- `test_prefetch_final_correct.ps1`
+- `test_prefetch_improved.ps1`
+- `test_prefetch_long_wait.ps1`
+- `test_prefetch_optimization.ps1`
+- `test_prefetch_quick.ps1`
+- `test_prefetch_with_auth.ps1`
+
+#### 验证脚本（1个）
+- `verify_prefetch_recording.ps1`
+
+### 第二次清理统计
+- **删除文件：** 29个测试脚本
+- **删除行数：** -3,490行
+- **更新配置：** .gitignore 添加测试脚本忽略规则
+
+### 更新的 .gitignore 规则
+```gitignore
+# 测试和诊断脚本
+benchmark_*.ps1
+diagnose_*.ps1
+stress-test-*.ps1
+test-*.ps1
+test_*.ps1
+verify_*.ps1
+```
+
 ## 总结
 
-V5 分支清理已成功完成：
+V5 分支清理已成功完成（两次清理）：
 
+### 第一次清理
 - ✓ 移除了 ~622 MB 的构建产物和临时文件
 - ✓ 删除了 21 个陈旧的技术文档
-- ✓ 保留了所有核心文档和源代码
-- ✓ 更新了 .gitignore 防止再次提交
-- ✓ 本地文件完全保留，不受影响
-- ✓ 远程仓库更加精简和高效
+- ✓ 删除了 1 个临时备份文件
+
+### 第二次清理
+- ✓ 移除了 29 个测试和诊断脚本
+- ✓ 删除了 3,490 行测试代码
+
+### 总计
+- **删除文件：** 70个（41个文档/二进制 + 29个脚本）
+- **删除行数：** -7,641行
+- **节省空间：** ~622 MB
+- **保留内容：** 所有核心代码和文档
+- **本地文件：** 完全保留，不受影响
+- **远程仓库：** 更加精简和高效
 
 **清理状态：** ✓ 完成  
 **仓库状态：** ✓ 优化  
-**文档状态：** ✓ 精简
+**文档状态：** ✓ 精简  
+**脚本状态：** ✓ 本地保留
 
 ---
 
 **最后更新：** 2025-11-27  
-**提交哈希：** b228332c  
+**第一次提交：** b228332c  
+**第二次提交：** 01d9e3a6  
 **分支：** v5
