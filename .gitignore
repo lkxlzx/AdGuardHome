@@ -50,7 +50,12 @@ dist_lru_optimized/
 *~
 
 # 陈旧文档 - 使用通配符模式
+*V2*.md
 *V3*.md
+*V4*.md
+*v2*.md
+*v3*.md
+*v4*.md
 *DASHBOARD*.md
 *PREFETCH*.md
 *CODE_*.md
@@ -78,6 +83,11 @@ dist_lru_optimized/
 *POTENTIAL*.md
 *LINUX_*.md
 
+# 测试和示例 YAML 文件
+*test*.yaml
+*example*.yaml
+*prefetch*.yaml
+
 # 保留的核心文档
 !README.md
 !CHANGELOG.md
@@ -86,6 +96,7 @@ dist_lru_optimized/
 !SECURITY.md
 !V5_*.md
 !V4_COMMIT_SUMMARY.md
+!VERSION_COMPARISON_V4.md
 !BRANCH_SUMMARY.md
 !DNS_ROUTING_FILTER_FIX.md
 !DNS_ROUTING_FIX_COMPLETE.md
