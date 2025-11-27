@@ -44,10 +44,12 @@ tmp/
 !test_china_domains.txt
 !test_custom_domains.txt
 
-# V5 分支：忽略构建产物和临时文档
+# V5 分支：忽略构建产物、临时文档和测试脚本
 dist_dns_routing_fix/
 dist_lru_optimized/
 *~
+
+# 陈旧文档
 ALL_ISSUES_FIXED_REPORT.md
 CODE_AUDIT_FINAL_REPORT.md
 CRITICAL_FIXES_COMPLETE.md
@@ -68,5 +70,13 @@ LRU_OPTIMIZATION_FINAL_SUMMARY.md
 LRU_PERFORMANCE_TEST_FINAL.md
 PREFETCH_OPTIMIZATION_COMPLETE.md
 COMPREHENSIVE_BENCHMARK_REPORT.md
+
+# 测试和诊断脚本
+benchmark_*.ps1
+diagnose_*.ps1
+stress-test-*.ps1
+test-*.ps1
+test_*.ps1
+verify_*.ps1
 
 !/build/gitkeep
