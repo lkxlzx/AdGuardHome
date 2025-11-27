@@ -71,12 +71,25 @@ LRU_PERFORMANCE_TEST_FINAL.md
 PREFETCH_OPTIMIZATION_COMPLETE.md
 COMPREHENSIVE_BENCHMARK_REPORT.md
 
-# 测试和诊断脚本
+# 测试、诊断和其他辅助脚本
+analyze_*.ps1
 benchmark_*.ps1
+check-*.ps1
 diagnose_*.ps1
+monitor_*.ps1
+run-*.ps1
 stress-test-*.ps1
 test-*.ps1
 test_*.ps1
 verify_*.ps1
+
+# 旧版构建脚本
+build-all-platforms-complete.ps1
+build-release-simple.ps1
+build-release.ps1
+
+# 保留的构建脚本
+!build-dns-routing-fix.ps1
+!build-dns-routing-fix-all-platforms.ps1
 
 !/build/gitkeep
