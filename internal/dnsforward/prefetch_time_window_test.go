@@ -41,7 +41,11 @@ func TestPrefetchManager_TimeWindow(t *testing.T) {
 	shard := pm.getShard(domain + ".")
 	shard.mu.RLock()
 	_, isHot := shard.domains[domain+"."]
-	hitCount := shard.hits[domain+"."]
+	counter := shard.hitCounters[domain+"."]
+	hitCount := 0
+	if counter != nil {
+		hitCount = counter.count
+	}
 	shard.mu.RUnlock()
 
 	assert.False(t, isHot, "Domain should not be hot with only 2 hits")
@@ -52,7 +56,11 @@ func TestPrefetchManager_TimeWindow(t *testing.T) {
 
 	shard.mu.RLock()
 	_, isHot = shard.domains[domain+"."]
-	hitCount = shard.hits[domain+"."]
+	counter = shard.hitCounters[domain+"."]
+	hitCount = 0
+	if counter != nil {
+		hitCount = counter.count
+	}
 	shard.mu.RUnlock()
 
 	assert.True(t, isHot, "Domain should be hot with 3 hits")
@@ -66,13 +74,15 @@ func TestPrefetchManager_TimeWindow(t *testing.T) {
 
 	shard.mu.RLock()
 	_, isHot = shard.domains[domain+"."]
-	hitCount = shard.hits[domain+"."]
-	timestampCount := len(shard.hitTimestamps[domain+"."])
+	counter = shard.hitCounters[domain+"."]
+	hitCount = 0
+	if counter != nil {
+		hitCount = counter.count
+	}
 	shard.mu.RUnlock()
 
 	assert.False(t, isHot, "Domain should not be hot after time window expiration")
 	assert.Equal(t, 1, hitCount, "Hit count should be 1 after time window expiration")
-	assert.Equal(t, 1, timestampCount, "Should only have 1 timestamp within time window")
 
 	// Record 2 more hits quickly (total 3 within window)
 	pm.Record(domain, ttl)
@@ -80,7 +90,11 @@ func TestPrefetchManager_TimeWindow(t *testing.T) {
 
 	shard.mu.RLock()
 	_, isHot = shard.domains[domain+"."]
-	hitCount = shard.hits[domain+"."]
+	counter = shard.hitCounters[domain+"."]
+	hitCount = 0
+	if counter != nil {
+		hitCount = counter.count
+	}
 	shard.mu.RUnlock()
 
 	assert.True(t, isHot, "Domain should be hot again with 3 hits in new window")
@@ -135,20 +149,26 @@ func TestPrefetchManager_TimeWindowCleanup(t *testing.T) {
 
 	shard1.mu.RLock()
 	_, isHot1 = shard1.domains["domain1.com."]
-	hitCount1 := shard1.hits["domain1.com."]
-	timestampCount1 := len(shard1.hitTimestamps["domain1.com."])
+	counter1 := shard1.hitCounters["domain1.com."]
+	hitCount1 := 0
+	if counter1 != nil {
+		hitCount1 = counter1.count
+	}
 	shard1.mu.RUnlock()
 
 	assert.False(t, isHot1, "domain1 should not be hot after window expiration")
 	assert.Equal(t, 1, hitCount1, "domain1 hit count should be 1")
-	assert.Equal(t, 1, timestampCount1, "domain1 should only have 1 timestamp")
 
 	// domain2 should still have old data (not accessed)
 	shard2.mu.RLock()
-	timestampCount2 := len(shard2.hitTimestamps["domain2.com."])
+	counter2 := shard2.hitCounters["domain2.com."]
+	hitCount2 := 0
+	if counter2 != nil {
+		hitCount2 = counter2.count
+	}
 	shard2.mu.RUnlock()
 
-	assert.Equal(t, 5, timestampCount2, "domain2 should still have 5 timestamps (not cleaned yet)")
+	assert.Equal(t, 5, hitCount2, "domain2 should still have 5 hits (not cleaned yet)")
 }
 
 // TestPrefetchManager_TimeWindowDifferentDurations tests different time window durations.

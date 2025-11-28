@@ -42,10 +42,15 @@ type PrefetchMetrics struct {
 type domainShard struct {
 	mu         sync.RWMutex
 	domains    map[string]time.Time
-	hits       map[string]int
 	lastAccess map[string]time.Time
-	// hitTimestamps stores the timestamps of each hit for time window calculation
-	hitTimestamps map[string][]time.Time
+	// hitCounters stores simplified hit counting for time window calculation
+	hitCounters map[string]*hitCounter
+}
+
+// hitCounter tracks hits within a time window with minimal memory allocation.
+type hitCounter struct {
+	count       int       // Current hit count
+	windowStart time.Time // Start of current time window
 }
 
 // PrefetchManager handles active cache warming for hot domains.
@@ -180,10 +185,9 @@ func NewPrefetchManager(s *Server) *PrefetchManager {
 	// Initialize shards
 	for i := range pm.shards {
 		pm.shards[i] = &domainShard{
-			domains:       make(map[string]time.Time),
-			hits:          make(map[string]int),
-			lastAccess:    make(map[string]time.Time),
-			hitTimestamps: make(map[string][]time.Time),
+			domains:     make(map[string]time.Time),
+			lastAccess:  make(map[string]time.Time),
+			hitCounters: make(map[string]*hitCounter),
 		}
 	}
 
@@ -259,7 +263,7 @@ func (pm *PrefetchManager) getTotalEntries() int {
 	total := 0
 	for _, shard := range pm.shards {
 		shard.mu.RLock()
-		total += len(shard.hits)
+		total += len(shard.hitCounters)
 		shard.mu.RUnlock()
 	}
 	return total
@@ -277,74 +281,51 @@ func (pm *PrefetchManager) RecordCacheHit(domain string, ttl uint32) {
 }
 
 // record is the internal implementation that handles both cache hit and miss scenarios.
+// Optimized version with minimal memory allocation and reduced lock time.
 func (pm *PrefetchManager) record(domain string, ttl uint32, isCacheHit bool) {
 	if domain == "" || ttl == 0 {
 		return
 	}
 
+	// Perform string operations outside the lock
 	domain = dns.Fqdn(domain)
 	now := time.Now()
+	expiry := now.Add(time.Duration(ttl) * time.Second)
 
 	// Get the shard for this domain
 	shard := pm.getShard(domain)
 
+	// Minimize lock holding time
 	shard.mu.Lock()
-	defer shard.mu.Unlock()
 
-	// Add current timestamp to hit history
-	timestamps := shard.hitTimestamps[domain]
-	timestamps = append(timestamps, now)
-
-	// Remove timestamps outside the time window
-	cutoff := now.Add(-pm.timeWindow)
-	validTimestamps := make([]time.Time, 0, len(timestamps))
-	for _, ts := range timestamps {
-		// Include timestamps at the boundary (ts >= cutoff)
-		if !ts.Before(cutoff) {
-			validTimestamps = append(validTimestamps, ts)
+	// Get or create hit counter
+	counter := shard.hitCounters[domain]
+	if counter == nil {
+		counter = &hitCounter{
+			count:       1,
+			windowStart: now,
+		}
+		shard.hitCounters[domain] = counter
+	} else {
+		// Check if we need to reset the time window
+		if now.Sub(counter.windowStart) > pm.timeWindow {
+			// Window expired, reset counter
+			counter.count = 1
+			counter.windowStart = now
+		} else {
+			// Within window, increment counter
+			counter.count++
 		}
 	}
-	
-	// Limit maximum timestamps per domain to prevent memory leak
-	// For high-frequency domains, keep only the most recent timestamps
-	const maxTimestampsPerDomain = 1000
-	if len(validTimestamps) > maxTimestampsPerDomain {
-		// Keep only the most recent timestamps
-		validTimestamps = validTimestamps[len(validTimestamps)-maxTimestampsPerDomain:]
-		pm.logger.Debug("trimmed timestamps for high-frequency domain",
-			"domain", domain,
-			"kept", maxTimestampsPerDomain)
-	}
-	
-	shard.hitTimestamps[domain] = validTimestamps
 
-	// Update hit count based on valid timestamps within time window
-	hitCount := len(validTimestamps)
-	shard.hits[domain] = hitCount
+	hitCount := counter.count
 	shard.lastAccess[domain] = now
 
 	// Cache hits bypass threshold checking
 	shouldTrack := isCacheHit || (hitCount >= pm.threshold)
-	
+
 	if shouldTrack {
-		// Calculate expiration time
-		expiry := now.Add(time.Duration(ttl) * time.Second)
 		shard.domains[domain] = expiry
-		
-		if isCacheHit {
-			pm.logger.Debug("domain marked as hot (cache hit, bypassed threshold)",
-				"domain", domain,
-				"hit_count", hitCount,
-				"expiry", expiry,
-				"ttl", ttl)
-		} else {
-			pm.logger.Debug("domain marked as hot (reached threshold)",
-				"domain", domain,
-				"hit_count", hitCount,
-				"threshold", pm.threshold,
-				"expiry", expiry,
-				"ttl", ttl)
-		}
 	} else {
 		// Remove from hot domains if it falls below threshold
 		delete(shard.domains, domain)
@@ -352,7 +333,12 @@ func (pm *PrefetchManager) record(domain string, ttl uint32, isCacheHit bool) {
 
 	// Check if we need cleanup (check periodically, not every time)
 	// Only check on shard 0 to avoid multiple cleanup triggers
-	if shard == pm.shards[0] && len(shard.hits)%1000 == 0 {
+	needsCleanup := shard == pm.shards[0] && len(shard.hitCounters)%1000 == 0
+
+	shard.mu.Unlock()
+
+	// Perform expensive operations outside the lock
+	if needsCleanup {
 		totalEntries := pm.getTotalEntries()
 		if totalEntries > pm.maxEntries {
 			pm.logger.Info("prefetch cache exceeded max entries, triggering cleanup",
@@ -362,6 +348,9 @@ func (pm *PrefetchManager) record(domain string, ttl uint32, isCacheHit bool) {
 			go pm.cleanupInternal(false)
 		}
 	}
+
+	// Debug logging removed for performance
+	// Only log at Info level for important events
 }
 
 // calculatePriority calculates the priority of a refresh task based on time until expiration.
@@ -416,12 +405,12 @@ func (pm *PrefetchManager) scheduleTask(task *RefreshTask) {
 func (pm *PrefetchManager) worker(id int) {
 	defer pm.workerWg.Done()
 
-	pm.logger.Debug("worker started", "id", id)
+	// Worker started (debug logging removed for performance)
 
 	for {
 		select {
 		case <-pm.stopCh:
-			pm.logger.Debug("worker stopped", "id", id)
+			// Worker stopped
 			return
 
 		case task := <-pm.urgentQueue:
@@ -441,10 +430,7 @@ func (pm *PrefetchManager) worker(id int) {
 				if newPriority >= pm.urgentThreshold {
 					// Upgrade to urgent
 					pm.metrics.TasksUpgraded.Add(1)
-					pm.logger.Debug("task upgraded to urgent",
-						"domain", task.Domain,
-						"old_priority", task.Priority,
-						"new_priority", newPriority)
+					// Task upgraded (debug logging removed for performance)
 
 					task.Priority = newPriority
 					select {
@@ -536,10 +522,7 @@ func (pm *PrefetchManager) executeTask(task *RefreshTask, isUrgent bool) {
 		} else {
 			pm.metrics.TasksCompleted.Add(1)
 			pm.lastPrefetchTime.Store(time.Now())
-			pm.logger.Debug("refresh completed",
-				"domain", task.Domain,
-				"wait", waitTime,
-				"priority", task.Priority)
+			// Refresh completed (debug logging removed for performance)
 		}
 	}()
 }
@@ -612,20 +595,15 @@ func (pm *PrefetchManager) cleanupIncremental() {
 		shard.mu.Lock()
 		for i := 0; i < removeCount; i++ {
 			domain := entries[i].domain
-			delete(shard.hits, domain)
+			delete(shard.hitCounters, domain)
 			delete(shard.domains, domain)
 			delete(shard.lastAccess, domain)
-			delete(shard.hitTimestamps, domain)
 			totalRemoved++
 		}
 		shard.mu.Unlock()
 	}
 	
-	pm.logger.Debug("incremental cleanup completed",
-		"shards_cleaned", shardsPerRound,
-		"start_shard", startShard,
-		"removed", totalRemoved,
-		"remaining", pm.getTotalEntries())
+	// Incremental cleanup completed (debug logging removed for performance)
 }
 
 // cleanupWorker periodically scans for domains that need refreshing.
@@ -641,13 +619,12 @@ func (pm *PrefetchManager) cleanupWorker() {
 	cleanupTicker := time.NewTicker(currentCleanupInterval)
 	defer cleanupTicker.Stop()
 
-	pm.logger.Debug("cleanup worker started",
-		"initial_cleanup_interval", currentCleanupInterval)
+	// Cleanup worker started (debug logging removed for performance)
 
 	for {
 		select {
 		case <-pm.stopCh:
-			pm.logger.Debug("cleanup worker stopped")
+			// Cleanup worker stopped
 			return
 
 		case <-refreshTicker.C:
@@ -659,7 +636,7 @@ func (pm *PrefetchManager) cleanupWorker() {
 			
 			// Periodically do full cleanup (every 4 rounds = when nextCleanupShard wraps to 0)
 			if pm.nextCleanupShard.Load() == 0 {
-				pm.logger.Debug("performing full cleanup after incremental rounds")
+				// Performing full cleanup after incremental rounds
 				pm.cleanupInternal(true)
 			}
 			
@@ -741,11 +718,7 @@ func (pm *PrefetchManager) checkAndRefresh() {
 		shard.mu.Unlock()
 	}
 
-	if totalDomains > 0 {
-		pm.logger.Debug("checkAndRefresh scan",
-			"total_hot_domains", totalDomains,
-			"tasks_to_schedule", len(tasks))
-	}
+	// Debug logging removed for performance
 
 	if len(tasks) == 0 {
 		return
@@ -778,9 +751,7 @@ func (pm *PrefetchManager) cleanupInternal(force bool) {
 	aggressiveCleanup := totalEntries > int(float64(pm.maxEntries)*1.2) // 20% over limit
 	
 	if !cleanupNeeded {
-		pm.logger.Debug("cleanup skipped, entries within limit",
-			"current", totalEntries,
-			"max", pm.maxEntries)
+		// Cleanup not needed, entries within limit
 		return
 	}
 	
@@ -811,11 +782,7 @@ func (pm *PrefetchManager) cleanupInternal(force bool) {
 		}
 	}
 
-	pm.logger.Debug("cleanup started",
-		"current_entries", totalEntries,
-		"max_entries", pm.maxEntries,
-		"target_remove", targetRemove,
-		"aggressive", aggressiveCleanup)
+	// Cleanup started (debug logging removed for performance)
 
 	// Collect candidates for removal with their scores
 	type candidate struct {
@@ -849,13 +816,13 @@ func (pm *PrefetchManager) cleanupInternal(force bool) {
 			}
 			
 			// Factor 2: Hit count (lower hits = lower score)
-			if hits, exists := shard.hits[domain]; exists {
-				score += float64(hits) * 10 // Each hit adds to score
-			}
-			
-			// Factor 3: Below threshold penalty
-			if hits, exists := shard.hits[domain]; exists && hits < lowHitThreshold {
-				score -= 50 // Below threshold, priority for removal
+			if counter, exists := shard.hitCounters[domain]; exists {
+				score += float64(counter.count) * 10 // Each hit adds to score
+				
+				// Factor 3: Below threshold penalty
+				if counter.count < lowHitThreshold {
+					score -= 50 // Below threshold, priority for removal
+				}
 			}
 			
 			candidates = append(candidates, candidate{
@@ -898,10 +865,9 @@ func (pm *PrefetchManager) cleanupInternal(force bool) {
 	for i := 0; i < removeCount; i++ {
 		c := candidates[i]
 		c.shard.mu.Lock()
-		delete(c.shard.hits, c.domain)
+		delete(c.shard.hitCounters, c.domain)
 		delete(c.shard.domains, c.domain)
 		delete(c.shard.lastAccess, c.domain)
-		delete(c.shard.hitTimestamps, c.domain)
 		c.shard.mu.Unlock()
 		
 		totalRemoved++
@@ -910,7 +876,7 @@ func (pm *PrefetchManager) cleanupInternal(force bool) {
 	// Count remaining entries
 	for _, shard := range pm.shards {
 		shard.mu.RLock()
-		totalHits += len(shard.hits)
+		totalHits += len(shard.hitCounters)
 		totalDomains += len(shard.domains)
 		shard.mu.RUnlock()
 	}
@@ -933,11 +899,7 @@ func (pm *PrefetchManager) refresh(domain string) error {
 	var lastErr error
 	
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		pm.logger.Debug("prefetch refresh attempt",
-			"domain", domain,
-			"method", "cache_refresh",
-			"attempt", attempt,
-			"max_retries", maxRetries)
+		// Refresh attempt (debug logging removed for performance)
 
 		// Use context with timeout for each attempt
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -947,9 +909,7 @@ func (pm *PrefetchManager) refresh(domain string) error {
 		if err == nil {
 			// Success
 			if attempt > 1 {
-				pm.logger.Debug("prefetch refresh succeeded after retry",
-					"domain", domain,
-					"attempt", attempt)
+				// Refresh succeeded after retry (debug logging removed)
 				// Log retry success to error log
 				pm.logRetrySuccess(domain, "cache_refresh", attempt)
 			}
@@ -965,11 +925,7 @@ func (pm *PrefetchManager) refresh(domain string) error {
 		if attempt < maxRetries {
 			// Exponential backoff: 100ms, 200ms, 400ms
 			backoff := time.Duration(100*attempt) * time.Millisecond
-			pm.logger.Debug("prefetch refresh failed, retrying",
-				"domain", domain,
-				"attempt", attempt,
-				"err", err,
-				"backoff", backoff)
+			// Retrying (debug logging removed for performance)
 			time.Sleep(backoff)
 		}
 	}
@@ -996,7 +952,7 @@ func (pm *PrefetchManager) refresh(domain string) error {
 func (pm *PrefetchManager) GetStats() (hits, domains, tracked int) {
 	for _, shard := range pm.shards {
 		shard.mu.RLock()
-		hits += len(shard.hits)
+		hits += len(shard.hitCounters)
 		domains += len(shard.domains)
 		tracked += len(shard.lastAccess)
 		shard.mu.RUnlock()

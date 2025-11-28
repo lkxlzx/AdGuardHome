@@ -112,9 +112,11 @@ func BenchmarkPrefetch_Cleanup(b *testing.B) {
 				shard := pm.getShard(domain)
 				
 				shard.mu.Lock()
-				shard.hits[domain] = 3
+				shard.hitCounters[domain] = &hitCounter{
+					count:       3,
+					windowStart: now,
+				}
 				shard.lastAccess[domain] = now
-				shard.hitTimestamps[domain] = []time.Time{now, now, now}
 				
 				// Make some entries old
 				if i%3 == 0 {
