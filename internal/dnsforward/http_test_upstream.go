@@ -110,7 +110,7 @@ func (s *Server) testSingleUpstream(upstreamAddr string) upstreamTestResult {
 	}
 
 	// Test with a simple DNS query (google.com A record)
-	testReq := createTestMessage()
+	testReq := createTestDNSMessage()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -135,8 +135,8 @@ func (s *Server) testSingleUpstream(upstreamAddr string) upstreamTestResult {
 	return result
 }
 
-// createTestMessage creates a test DNS query message
-func createTestMessage() *dns.Msg {
+// createTestDNSMessage creates a test DNS query message
+func createTestDNSMessage() *dns.Msg {
 	req := &dns.Msg{
 		MsgHdr: dns.MsgHdr{
 			Id:               dns.Id(),
