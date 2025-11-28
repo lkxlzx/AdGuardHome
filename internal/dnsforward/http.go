@@ -945,7 +945,7 @@ func (s *Server) handleGetDashboardMetrics(w http.ResponseWriter, r *http.Reques
 	// Get Prefetch metrics if enabled
 	if s.conf.PrefetchEnabled && s.prefetch != nil {
 		metrics := s.prefetch.GetMetrics()
-		resp.PrefetchHotDomains = metrics["hot_domains"]
+		resp.PrefetchHotDomains = metrics["tracked_domains"] // Use tracked_domains for stable count
 		resp.PrefetchCompleted = metrics["tasks_completed"]
 		resp.PrefetchFailed = metrics["tasks_failed"]
 		
@@ -1043,7 +1043,7 @@ func (s *Server) handleGetPrefetchMetrics(w http.ResponseWriter, r *http.Request
 	// Get Prefetch metrics if enabled
 	if s.conf.PrefetchEnabled && s.prefetch != nil {
 		metrics := s.prefetch.GetMetrics()
-		resp.PrefetchHotDomains = metrics["hot_domains"]
+		resp.PrefetchHotDomains = metrics["tracked_domains"] // Use tracked_domains for stable count
 		resp.PrefetchCompleted = metrics["tasks_completed"]
 		resp.PrefetchFailed = metrics["tasks_failed"]
 		resp.PrefetchQueueSize = metrics["urgent_queue"] + metrics["normal_queue"]
@@ -1164,6 +1164,7 @@ func (s *Server) registerHandlers() {
 	s.conf.HTTPReg.Register(http.MethodGet, "/control/dns_info", s.handleGetConfig)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/dns_config", s.handleSetConfig)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/test_upstream_dns", s.handleTestUpstreamDNS)
+	s.conf.HTTPReg.Register(http.MethodPost, "/control/test_upstream_group", s.handleTestUpstreamGroup)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/validate_clash_rule", s.handleValidateClashRule)
 	s.conf.HTTPReg.Register(http.MethodGet, "/control/dashboard_metrics", s.handleGetDashboardMetrics)
 	s.conf.HTTPReg.Register(http.MethodGet, "/control/prefetch_status", s.handleGetPrefetchStatus)

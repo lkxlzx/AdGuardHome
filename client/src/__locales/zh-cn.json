@@ -887,5 +887,11 @@
     "upstream_group_cannot_delete_default": "无法删除默认组，请先设置其他组为默认组",
     "default_group": "默认组",
     "default_group_hint": "分流规则未命中时使用此组",
-    "set_as_default": "设为默认"
+    "set_as_default": "设为默认",
+    "test_upstream_group": "检测",
+    "test": "测试",
+    "testing": "测试中...",
+    "test_success": "测试成功",
+    "test_failed": "测试失败",
+    "test_partial_success": "部分成功"
 }

@@ -1,0 +1,7 @@
+{
+    "test_upstream_group": "检测",
+    "test": "测试",
+    "testing": "测试中...",
+    "test_success": "测试成功",
+    "test_failed": "测试失败"
+}

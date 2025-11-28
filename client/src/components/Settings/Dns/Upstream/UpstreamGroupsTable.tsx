@@ -19,9 +19,17 @@ interface TableProps {
     toggleModal: (config: { type: string; currentGroup?: UpstreamGroup }) => void;
     toggleDefault: (group: UpstreamGroup) => void;
     toggleEnabled: (group: UpstreamGroup) => void;
+    handleTest: (group: UpstreamGroup) => void;
+    upstreamGroupTests: any;
 }
 
-class Table extends Component<TableProps> {
+interface TableState {}
+
+class Table extends Component<TableProps, TableState> {
+    constructor(props: TableProps) {
+        super(props);
+        this.state = {};
+    }
     cellWrap = ({ value }: any) => (
         <div className="logs__row o-hidden">
             <span className="logs__text" title={value}>
@@ -72,6 +80,68 @@ class Table extends Component<TableProps> {
                     </span>
                 </div>
             ),
+        },
+        {
+            Header: this.props.t('test_upstream_group'),
+            accessor: 'test',
+            width: 160,
+            sortable: false,
+            resizable: false,
+            className: 'text-center',
+            Cell: (row: any) => {
+                const { original } = row;
+                const testState = this.props.upstreamGroupTests?.[original.id] || {};
+                
+                if (testState.testing) {
+                    return (
+                        <div className="logs__row logs__row--center" style={{ position: 'relative' }}>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                disabled
+                                style={{ minWidth: '120px' }}>
+                                <span className="spinner-border spinner-border-sm mr-2" />
+                                {this.props.t('testing')}
+                            </button>
+                        </div>
+                    );
+                }
+                
+                if (testState.result) {
+                    const { summary } = testState.result;
+                    const allSuccess = summary.failed === 0;
+                    
+                    return (
+                        <div className="logs__row logs__row--center">
+                            <button
+                                type="button"
+                                className={`btn btn-sm ${allSuccess ? 'btn-success' : 'btn-warning'}`}
+                                onClick={() => this.props.handleTest(original)}
+                                disabled={this.props.processing}
+                                style={{ minWidth: '120px' }}
+                                title={`${summary.success}/${summary.total} OK, ${summary.avg_response_time}`}>
+                                <svg className="icons icon12 mr-1">
+                                    <use xlinkHref={allSuccess ? '#check' : '#cross'} />
+                                </svg>
+                                {allSuccess ? this.props.t('test_success') : this.props.t('test_partial_success')}
+                            </button>
+                        </div>
+                    );
+                }
+                
+                return (
+                    <div className="logs__row logs__row--center">
+                        <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            onClick={() => this.props.handleTest(original)}
+                            disabled={this.props.processing || testState.testing}
+                            style={{ minWidth: '120px' }}>
+                            {this.props.t('test_upstream_group')}
+                        </button>
+                    </div>
+                );
+            },
         },
         {
             Header: this.props.t('upstream_group_servers_short'),

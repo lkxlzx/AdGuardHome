@@ -151,14 +151,14 @@ const PrefetchMetrics = () => {
                             {formatNumber(data.prefetch_failed)}
                         </span>
                     </div>
-                    {data.last_prefetch_time && (
-                        <div className="prefetch-detail">
-                            <span className="prefetch-detail__label">{t('last_prefetch')}:</span>
-                            <span className="prefetch-detail__value text-muted">
-                                {new Date(data.last_prefetch_time).toLocaleString()}
-                            </span>
-                        </div>
-                    )}
+                    <div className="prefetch-detail">
+                        <span className="prefetch-detail__label">{t('last_prefetch')}:</span>
+                        <span className="prefetch-detail__value text-muted">
+                            {data.last_prefetch_time 
+                                ? new Date(data.last_prefetch_time).toLocaleString()
+                                : '--'}
+                        </span>
+                    </div>
                 </div>
             </div>
         </Card>

@@ -7,7 +7,7 @@ import Card from '../../../ui/Card';
 import Form from './Form';
 import Table from './UpstreamGroupsTable';
 import Modal from './UpstreamGroupsModal';
-import { setDnsConfig } from '../../../../actions/dnsConfig';
+import { setDnsConfig, testUpstreamGroup } from '../../../../actions/dnsConfig';
 import { RootState, UpstreamGroup } from '../../../../initialState';
 import { MODAL_TYPE } from '../../../../helpers/constants';
 
@@ -24,7 +24,9 @@ interface UpstreamDnsSettingsProps {
     upstream_groups: UpstreamGroup[];
     processingSetConfig: boolean;
     setDnsConfig: (config: any) => void;
+    testUpstreamGroup: (groupId: string, upstreams: string[]) => void;
     dnsConfig: any;
+    upstreamGroupTests: any;
 }
 
 interface UpstreamDnsSettingsState {
@@ -136,6 +138,15 @@ class UpstreamDnsSettings extends Component<UpstreamDnsSettingsProps, UpstreamDn
         });
     };
 
+    handleTest = (group: UpstreamGroup) => {
+        // Convert upstreams from string to array if needed
+        const upstreamsArray = Array.isArray(group.upstreams)
+            ? group.upstreams
+            : group.upstreams.split('\n').filter((s: string) => s.trim());
+        
+        this.props.testUpstreamGroup(group.id, upstreamsArray);
+    };
+
     handleToggleEnabled = (group: UpstreamGroup) => {
         const updatedGroup: UpstreamGroup = {
             ...group,
@@ -204,6 +215,8 @@ class UpstreamDnsSettings extends Component<UpstreamDnsSettingsProps, UpstreamDn
                     toggleModal={this.toggleModal}
                     toggleDefault={this.handleSetDefault}
                     toggleEnabled={this.handleToggleEnabled}
+                    handleTest={this.handleTest}
+                    upstreamGroupTests={this.props.upstreamGroupTests || {}}
                 />
 
                 <div className="mt-3">
@@ -263,10 +276,12 @@ const mapStateToProps = (state: RootState) => ({
     upstream_groups: state.dnsConfig.upstream_groups || [],
     processingSetConfig: state.dnsConfig.processingSetConfig,
     dnsConfig: state.dnsConfig,
+    upstreamGroupTests: state.dnsConfig.upstreamGroupTests || {},
 });
 
 const mapDispatchToProps = {
     setDnsConfig,
+    testUpstreamGroup,
 };
 
 export default connect(mapStateToProps, mapDispatchToProps)(withTranslation()(UpstreamDnsSettings));

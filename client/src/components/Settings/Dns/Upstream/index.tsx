@@ -19,6 +19,8 @@ interface UpstreamGroupsProps {
     onUpdate: (target: UpstreamGroup, update: UpstreamGroup) => void;
     onDelete: (group: UpstreamGroup) => void;
     onSetDefault: (group: UpstreamGroup) => void;
+    onTest: (group: UpstreamGroup) => void;
+    upstreamGroupTests: any;
 }
 
 interface UpstreamGroupsState {
@@ -102,7 +104,7 @@ class UpstreamGroups extends Component<UpstreamGroupsProps, UpstreamGroupsState>
     };
 
     render() {
-        const { t, groups, processing, processingAdd, processingDelete, processingUpdate } = this.props;
+        const { t, groups, processing, processingAdd, processingDelete, processingUpdate, onTest, upstreamGroupTests } = this.props;
         const { isModalOpen, modalType, currentGroup } = this.state;
 
         return (
@@ -123,6 +125,8 @@ class UpstreamGroups extends Component<UpstreamGroupsProps, UpstreamGroupsState>
                             toggleModal={this.toggleModal}
                             toggleDefault={this.handleSetDefault}
                             toggleEnabled={this.handleToggleEnabled}
+                            handleTest={onTest}
+                            upstreamGroupTests={upstreamGroupTests}
                         />
 
                         <div className="card-actions">

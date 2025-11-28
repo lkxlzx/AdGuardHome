@@ -349,6 +349,13 @@ export type DnsConfigData = {
     prefetch_cleanup_interval?: number;
     prefetch_soft_limit?: number;
     prefetch_hard_limit?: number;
+    upstreamGroupTests?: {
+        [groupId: string]: {
+            testing: boolean;
+            result?: any;
+            error?: string;
+        };
+    };
 };
 
 export type FilteringData = {

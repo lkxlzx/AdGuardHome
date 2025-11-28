@@ -74,6 +74,17 @@ class Api {
         return this.makeRequest(path, method, config);
     }
 
+    testUpstreamGroup(groupId: string, upstreams: string[]) {
+        const path = 'test_upstream_group';
+        const config = {
+            data: {
+                group_id: groupId,
+                upstreams: upstreams,
+            },
+        };
+        return this.makeRequest(path, 'POST', config);
+    }
+
     getGlobalVersion(data: any) {
         const { path, method } = this.GLOBAL_VERSION;
         const config = {

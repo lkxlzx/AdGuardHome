@@ -105,3 +105,21 @@ export const setDnsConfig = (config: any) => async (dispatch: any) => {
         dispatch(setDnsConfigFailure());
     }
 };
+
+// Test upstream group actions
+export const testUpstreamGroupRequest = createAction('TEST_UPSTREAM_GROUP_REQUEST');
+export const testUpstreamGroupFailure = createAction('TEST_UPSTREAM_GROUP_FAILURE');
+export const testUpstreamGroupSuccess = createAction('TEST_UPSTREAM_GROUP_SUCCESS');
+
+export const testUpstreamGroup = (groupId: string, upstreams: string[]) => async (dispatch: any) => {
+    dispatch(testUpstreamGroupRequest({ groupId }));
+    try {
+        const data = await apiClient.testUpstreamGroup(groupId, upstreams);
+        dispatch(testUpstreamGroupSuccess({ groupId, result: data }));
+        return data;
+    } catch (error) {
+        dispatch(testUpstreamGroupFailure({ groupId, error }));
+        dispatch(addErrorToast({ error }));
+        throw error;
+    }
+};

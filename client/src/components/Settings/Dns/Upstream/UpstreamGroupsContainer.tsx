@@ -3,14 +3,16 @@ import { connect } from 'react-redux';
 import { shallowEqual } from 'react-redux';
 
 import UpstreamGroups from './index';
-import { setDnsConfig } from '../../../../actions/dnsConfig';
+import { setDnsConfig, testUpstreamGroup } from '../../../../actions/dnsConfig';
 import { RootState, UpstreamGroup } from '../../../../initialState';
 
 interface ContainerProps {
     upstream_groups: UpstreamGroup[];
     processingSetConfig: boolean;
     setDnsConfig: (config: any) => void;
+    testUpstreamGroup: (groupId: string, upstreams: string[]) => void;
     dnsConfig: any;
+    upstreamGroupTests: any;
 }
 
 class UpstreamGroupsContainer extends Component<ContainerProps> {
@@ -106,8 +108,17 @@ class UpstreamGroupsContainer extends Component<ContainerProps> {
         });
     };
 
+    handleTest = (group: UpstreamGroup) => {
+        // Convert upstreams from string to array if needed
+        const upstreamsArray = Array.isArray(group.upstreams)
+            ? group.upstreams
+            : group.upstreams.split('\n').filter((s: string) => s.trim());
+        
+        this.props.testUpstreamGroup(group.id, upstreamsArray);
+    };
+
     render() {
-        const { upstream_groups, processingSetConfig } = this.props;
+        const { upstream_groups, processingSetConfig, upstreamGroupTests } = this.props;
 
         return (
             <UpstreamGroups
@@ -120,6 +131,8 @@ class UpstreamGroupsContainer extends Component<ContainerProps> {
                 onUpdate={this.handleUpdate}
                 onDelete={this.handleDelete}
                 onSetDefault={this.handleSetDefault}
+                onTest={this.handleTest}
+                upstreamGroupTests={upstreamGroupTests}
             />
         );
     }
@@ -129,10 +142,12 @@ const mapStateToProps = (state: RootState) => ({
     upstream_groups: state.dnsConfig.upstream_groups || [],
     processingSetConfig: state.dnsConfig.processingSetConfig,
     dnsConfig: state.dnsConfig,
+    upstreamGroupTests: state.dnsConfig.upstreamGroupTests || {},
 });
 
 const mapDispatchToProps = {
     setDnsConfig,
+    testUpstreamGroup,
 };
 
 export default connect(mapStateToProps, mapDispatchToProps)(UpstreamGroupsContainer);

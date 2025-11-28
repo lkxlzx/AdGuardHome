@@ -60,6 +60,35 @@ const dnsConfig = handleActions(
             ...state,
             processingSetConfig: false,
         }),
+        [actions.testUpstreamGroupRequest.toString()]: (state: any, { payload }: any) => ({
+            ...state,
+            upstreamGroupTests: {
+                ...state.upstreamGroupTests,
+                [payload.groupId]: {
+                    testing: true,
+                },
+            },
+        }),
+        [actions.testUpstreamGroupSuccess.toString()]: (state: any, { payload }: any) => ({
+            ...state,
+            upstreamGroupTests: {
+                ...state.upstreamGroupTests,
+                [payload.groupId]: {
+                    testing: false,
+                    result: payload.result,
+                },
+            },
+        }),
+        [actions.testUpstreamGroupFailure.toString()]: (state: any, { payload }: any) => ({
+            ...state,
+            upstreamGroupTests: {
+                ...state.upstreamGroupTests,
+                [payload.groupId]: {
+                    testing: false,
+                    error: payload.error,
+                },
+            },
+        }),
         [actions.setDnsConfigSuccess.toString()]: (state, { payload }: any) => {
             const {
                 blocking_ipv4,
@@ -110,6 +139,7 @@ const dnsConfig = handleActions(
         dnssec_enabled: false,
         upstream_dns_file: '',
         upstream_groups: [],
+        upstreamGroupTests: {},
     },
 );
 
