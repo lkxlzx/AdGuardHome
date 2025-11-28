@@ -558,6 +558,93 @@ func (d *DNSFilter) refreshFiltersIntl(block, allow, force bool) (int, bool) {
 	return updNum, false
 }
 
+// refreshSingleFilter refreshes a single filter by URL from the specified filters array.
+// This function is used when the user wants to update only one specific filter.
+func (d *DNSFilter) refreshSingleFilter(ctx context.Context, filters *[]FilterYAML, url string) (int, bool) {
+	d.logger.DebugContext(ctx, "starting single filter update", "url", url)
+	defer func(start time.Time) {
+		d.logger.DebugContext(ctx, "finished single filter update", "url", url, "duration", time.Since(start))
+	}(time.Now())
+
+	// Find the filter with the specified URL
+	d.conf.filtersMu.Lock()
+	var targetFilter *FilterYAML
+	for i := range *filters {
+		if (*filters)[i].URL == url {
+			targetFilter = &(*filters)[i]
+			break
+		}
+	}
+	d.conf.filtersMu.Unlock()
+
+	if targetFilter == nil {
+		d.logger.WarnContext(ctx, "filter not found", "url", url)
+		return 0, false
+	}
+
+	// Create a temporary slice with only the target filter
+	tempFilters := []FilterYAML{*targetFilter}
+	
+	// Update the single filter
+	failNum, updateFlags := d.updateFilterList(ctx, tempFilters)
+	if failNum > 0 {
+		return 0, true
+	}
+
+	// Sync the updated filter back to the original array
+	d.conf.filtersMu.Lock()
+	
+	updated := updateFlags[0]
+	uf := &tempFilters[0]
+	var oldFilterPath string
+	updateCount := 0
+
+	for k := range *filters {
+		f := &(*filters)[k]
+		if f.URL != url {
+			continue
+		}
+
+		f.LastUpdated = uf.LastUpdated
+		if !updated {
+			d.conf.filtersMu.Unlock()
+			return 0, false
+		}
+
+		d.logger.InfoContext(
+			ctx,
+			"updated filter",
+			"id", f.ID,
+			"url", f.URL,
+			"rules_count", uf.RulesCount,
+			"prev_rules_count", f.RulesCount,
+		)
+
+		f.Name = uf.Name
+		f.RulesCount = uf.RulesCount
+		f.checksum = uf.checksum
+		oldFilterPath = f.Path(d.conf.DataDir)
+		updateCount = 1
+		break
+	}
+
+	d.conf.filtersMu.Unlock()
+
+	// Reload filters after releasing the lock
+	// Use async reload to avoid blocking the HTTP request
+	if updateCount > 0 {
+		// Remove old filter file if data changed
+		if updated && oldFilterPath != "" {
+			removeOldFilterFile(ctx, d.logger, oldFilterPath)
+		}
+		
+		// Reload filters asynchronously to avoid timeout
+		go d.EnableFilters(true)
+	}
+
+	return updateCount, false
+}
+
 // refreshDnsRoutingFilters checks DNS routing filters and updates them if necessary.
 // This is separate from refreshFiltersIntl to keep DNS routing filters independent
 // from blocklist and whitelist filters.

@@ -955,34 +955,30 @@ func (d *DNSFilter) matchHost(
 		engineBlock = d.filteringEngine
 	}()
 
-	// Check DNS routing engine first (always active, independent of FilteringEnabled and ProtectionEnabled)
-	if engineDnsRouting != nil {
-		dnsres, ok := engineDnsRouting.MatchRequest(ufReq)
-		if ok {
-			result, err := d.matchHostProcessAllowList(ctx, host, dnsres)
-			if err != nil {
-				return Result{}, err
-			}
+	// If FilteringEnabled is false, check DNS routing only
+	if !setts.FilteringEnabled {
+		// Check DNS routing engine (always active, independent of FilteringEnabled)
+		if engineDnsRouting != nil {
+			dnsres, ok := engineDnsRouting.MatchRequest(ufReq)
+			if ok {
+				result, err := d.matchHostProcessAllowList(ctx, host, dnsres)
+				if err != nil {
+					return Result{}, err
+				}
 
-			// Debug logging
-			d.logger.DebugContext(ctx, "DNS routing matched",
-				"host", host,
-				"upstream_group", result.UpstreamGroup)
-
-			// DNS routing rules always return (independent of protection settings)
-			if result.UpstreamGroup != "" {
-				d.logger.DebugContext(ctx, "returning DNS routing rule", "upstream_group", result.UpstreamGroup)
-				return result, nil
+				// DNS routing rules return when filtering is disabled
+				if result.UpstreamGroup != "" {
+					d.logger.DebugContext(ctx, "DNS routing matched (filtering disabled)", 
+						"host", host,
+						"upstream_group", result.UpstreamGroup)
+					return result, nil
+				}
 			}
 		}
-	}
-
-	// If FilteringEnabled is false, skip all other filtering (but DNS routing already checked above)
-	if !setts.FilteringEnabled {
 		return Result{}, nil
 	}
 
-	// Check allow list (only if protection is enabled)
+	// Check allow list first (only if protection is enabled)
 	if setts.ProtectionEnabled && engineAllow != nil {
 		dnsres, ok := engineAllow.MatchRequest(ufReq)
 		if ok {
@@ -996,37 +992,55 @@ func (d *DNSFilter) matchHost(
 		}
 	}
 
-	if engineBlock == nil {
-		return Result{}, nil
+	// Check block list (filtering rules have priority over DNS routing)
+	if engineBlock != nil {
+		dnsres, matchedEngine := engineBlock.MatchRequest(ufReq)
+
+		// Check DNS rewrites first, because the API there is a bit awkward.
+		dnsRWRes := d.processDNSResultRewrites(dnsres, host)
+		if dnsRWRes.Reason != NotFilteredNotFound {
+			return dnsRWRes, nil
+		}
+
+		if matchedEngine && setts.ProtectionEnabled {
+			// Blocklist matched - this takes priority over DNS routing
+			res = d.matchHostProcessDNSResult(rrtype, dnsres)
+			
+			for _, r := range res.Rules {
+				d.logger.DebugContext(
+					ctx,
+					"blocklist matched (takes priority over DNS routing)",
+					"host", host,
+					"rule", r.Text,
+					"filter_list_id", r.FilterListID,
+				)
+			}
+			
+			return res, nil
+		}
 	}
 
-	dnsres, matchedEngine := engineBlock.MatchRequest(ufReq)
+	// Check DNS routing engine last (only if not blocked by filtering rules)
+	// DNS routing is independent of ProtectionEnabled but respects filtering rules
+	if engineDnsRouting != nil {
+		dnsres, ok := engineDnsRouting.MatchRequest(ufReq)
+		if ok {
+			result, err := d.matchHostProcessAllowList(ctx, host, dnsres)
+			if err != nil {
+				return Result{}, err
+			}
 
-	// Check DNS rewrites first, because the API there is a bit awkward.
-	dnsRWRes := d.processDNSResultRewrites(dnsres, host)
-	if dnsRWRes.Reason != NotFilteredNotFound {
-		return dnsRWRes, nil
-	} else if !matchedEngine {
-		return Result{}, nil
+			// DNS routing rules apply when not blocked
+			if result.UpstreamGroup != "" {
+				d.logger.DebugContext(ctx, "DNS routing matched (not blocked by filters)",
+					"host", host,
+					"upstream_group", result.UpstreamGroup)
+				return result, nil
+			}
+		}
 	}
 
-	if !setts.ProtectionEnabled {
-		// Don't check non-dnsrewrite filtering results.
-		return Result{}, nil
-	}
-
-	res = d.matchHostProcessDNSResult(rrtype, dnsres)
-	for _, r := range res.Rules {
-		d.logger.DebugContext(
-			ctx,
-			"found rule for host",
-			"host", host,
-			"rule", r.Text,
-			"filter_list_id", r.FilterListID,
-		)
-	}
-
-	return res, nil
+	return Result{}, nil
 }
 
 // makeResult returns a properly constructed Result.

@@ -80,6 +80,7 @@ const DnsRouting: React.FC<DnsRoutingProps> = (props) => {
         handleDelete,
         toggleFilter,
         handleRefresh,
+        handleRefreshFilter,
         openAddFiltersModal,
     } = useDnsRoutingFilters({
         filtering,
@@ -149,6 +150,7 @@ const DnsRouting: React.FC<DnsRoutingProps> = (props) => {
                                 toggleFilteringModal={toggleFilteringModal}
                                 handleDelete={handleDelete}
                                 toggleFilter={toggleFilter}
+                                handleRefreshFilter={handleRefreshFilter}
                                 whitelist={whitelist}
                                 upstreamGroups={upstreamGroups}
                                 showUpstreamGroup={true}

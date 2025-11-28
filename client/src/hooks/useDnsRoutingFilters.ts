@@ -61,6 +61,10 @@ export const useDnsRoutingFilters = ({
         refreshFilters({ whitelist: false, dns_routing: true });
     }, [refreshFilters]);
 
+    const handleRefreshFilter = useCallback((url: string) => {
+        refreshFilters({ whitelist: false, dns_routing: true, url });
+    }, [refreshFilters]);
+
     const openAddFiltersModal = useCallback(() => {
         toggleFilteringModal({ type: MODAL_TYPE.ADD_FILTERS });
     }, [toggleFilteringModal]);
@@ -70,6 +74,7 @@ export const useDnsRoutingFilters = ({
         handleDelete,
         toggleFilter,
         handleRefresh,
+        handleRefreshFilter,
         openAddFiltersModal,
     };
 };

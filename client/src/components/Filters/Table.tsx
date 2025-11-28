@@ -19,6 +19,7 @@ interface TableProps {
     toggleFilteringModal: (...args: unknown[]) => unknown;
     handleDelete: (...args: unknown[]) => unknown;
     toggleFilter: (...args: unknown[]) => unknown;
+    handleRefreshFilter?: (url: string) => unknown;
     t: (...args: unknown[]) => string;
     whitelist?: boolean;
     upstreamGroups?: any[];
@@ -105,14 +106,14 @@ class Table extends Component<TableProps> {
             Header: <Trans>actions_table_header</Trans>,
             accessor: 'actions',
             className: 'text-center',
-            width: 100,
+            width: 140,
             sortable: false,
             resizable: false,
             Cell: (row: any) => {
                 const { original } = row;
                 const { url } = original;
 
-                const { t, toggleFilteringModal, handleDelete } = this.props;
+                const { t, toggleFilteringModal, handleDelete, handleRefreshFilter } = this.props;
 
                 return (
                     <div className="logs__row logs__row--center">
@@ -130,6 +131,18 @@ class Table extends Component<TableProps> {
                                 <use xlinkHref="#edit" />
                             </svg>
                         </button>
+
+                        {handleRefreshFilter && (
+                            <button
+                                type="button"
+                                className="btn btn-icon btn-outline-primary btn-sm mr-2"
+                                title={t('check_updates_btn')}
+                                onClick={() => handleRefreshFilter(url)}>
+                                <svg className="icons icon12">
+                                    <use xlinkHref="#refresh" />
+                                </svg>
+                            </button>
+                        )}
 
                         <button
                             type="button"

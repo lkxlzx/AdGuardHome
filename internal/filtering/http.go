@@ -429,8 +429,9 @@ func (d *DNSFilter) handleFilteringSetRules(w http.ResponseWriter, r *http.Reque
 
 func (d *DNSFilter) handleFilteringRefresh(w http.ResponseWriter, r *http.Request) {
 	type Req struct {
-		White      bool `json:"whitelist"`
-		DnsRouting bool `json:"dns_routing"`
+		White      bool   `json:"whitelist"`
+		DnsRouting bool   `json:"dns_routing"`
+		URL        string `json:"url"` // Optional: specific filter URL to refresh
 	}
 	var err error
 
@@ -465,12 +466,44 @@ func (d *DNSFilter) handleFilteringRefresh(w http.ResponseWriter, r *http.Reques
 			)
 			return
 		}
-		resp.Updated, _ = d.refreshDnsRoutingFilters(true)
+		
+		// If URL is specified, refresh only that filter
+		if req.URL != "" {
+			resp.Updated, _ = d.refreshSingleFilter(ctx, &d.conf.DNSRoutingFilters, req.URL)
+		} else {
+			resp.Updated, _ = d.refreshDnsRoutingFilters(true)
+		}
+		
 		d.refreshLock.Unlock()
 		ok = true
 	} else {
-		// Only refresh blocklist and/or whitelist filters
-		resp.Updated, _, ok = d.tryRefreshFilters(!req.White, req.White, true)
+		// Refresh blocklist and/or whitelist filters
+		if req.URL != "" {
+			// Refresh single filter from blocklist or whitelist
+			if ok = d.refreshLock.TryLock(); !ok {
+				aghhttp.ErrorAndLog(
+					ctx,
+					l,
+					r,
+					w,
+					http.StatusInternalServerError,
+					"filters update procedure is already running",
+				)
+				return
+			}
+			
+			if req.White {
+				resp.Updated, _ = d.refreshSingleFilter(ctx, &d.conf.WhitelistFilters, req.URL)
+			} else {
+				resp.Updated, _ = d.refreshSingleFilter(ctx, &d.conf.Filters, req.URL)
+			}
+			
+			d.refreshLock.Unlock()
+			ok = true
+		} else {
+			// Refresh all blocklist and/or whitelist filters
+			resp.Updated, _, ok = d.tryRefreshFilters(!req.White, req.White, true)
+		}
 	}
 
 	if !ok {
