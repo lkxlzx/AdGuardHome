@@ -344,11 +344,9 @@ export type DnsConfigData = {
     cache_optimistic?: boolean;
     prefetch_enabled?: boolean;
     prefetch_threshold?: number;
-    prefetch_time_window?: number;
-    prefetch_max_entries?: number;
-    prefetch_cleanup_interval?: number;
-    prefetch_soft_limit?: number;
-    prefetch_hard_limit?: number;
+    prefetch_threshold_window?: number;
+    prefetch_retention_time?: number;
+    prefetch_dynamic_retention_max_multiplier?: number;
     upstreamGroupTests?: {
         [groupId: string]: {
             testing: boolean;

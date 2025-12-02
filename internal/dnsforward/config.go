@@ -199,68 +199,52 @@ type Config struct {
 	// CacheOptimistic defines if optimistic cache mechanism should be used.
 	CacheOptimistic bool `yaml:"cache_optimistic"`
 
+	// Prefetch settings
+
+	// PrefetchEnabled enables active cache prefetching.
+	PrefetchEnabled bool `yaml:"prefetch_enabled"`
+
+	// PrefetchBatchSize is the number of items to process in one batch.
+	// Default: 10
+	PrefetchBatchSize int `yaml:"prefetch_batch_size"`
+
+	// PrefetchCheckInterval is the interval between prefetch checks in seconds.
+	// Default: 10
+	PrefetchCheckInterval int `yaml:"prefetch_check_interval"`
+
+	// PrefetchRefreshBefore is the time before expiration to trigger refresh in seconds.
+	// Default: 5
+	PrefetchRefreshBefore int `yaml:"prefetch_refresh_before"`
+
+	// PrefetchMaxConcurrent is the maximum number of concurrent prefetch requests.
+	// Default: 10
+	PrefetchMaxConcurrent int `yaml:"prefetch_max_concurrent"`
+
+	// PrefetchThreshold is the minimum number of requests required to trigger prefetch.
+	// Default: 1
+	PrefetchThreshold int `yaml:"prefetch_threshold"`
+
+	// PrefetchMaxQueueSize is the maximum number of items in the prefetch queue.
+	// Default: 10000
+	PrefetchMaxQueueSize int `yaml:"prefetch_max_queue_size"`
+
+	// PrefetchThresholdWindow is the time window for tracking request counts in seconds.
+	// Default: 0 (no window, simple counter)
+	PrefetchThresholdWindow int `yaml:"prefetch_threshold_window"`
+
+	// PrefetchRetentionTime is the fixed retention time in seconds.
+	// If 0, dynamic retention algorithm is used.
+	// Default: 0
+	PrefetchRetentionTime int `yaml:"prefetch_retention_time"`
+
+	// PrefetchDynamicRetentionMaxMultiplier is the maximum multiplier for dynamic retention.
+	// Only used when PrefetchRetentionTime is 0.
+	// Default: 10
+	PrefetchDynamicRetentionMaxMultiplier int `yaml:"prefetch_dynamic_retention_max_multiplier"`
+
 	// DomainCacheSize is the capacity of the LRU cache for domain routing lookups.
 	// If 0 or negative, the default capacity of 1000 is used.
 	DomainCacheSize int `yaml:"domain_cache_size"`
-
-	// Prefetch settings
-
-	// PrefetchEnabled defines if DNS prefetch (cache warming) is enabled.
-	// When enabled, frequently accessed domains will be automatically refreshed
-	// before their cache entries expire.
-	PrefetchEnabled bool `yaml:"prefetch_enabled"`
-
-	// PrefetchThreshold is the minimum number of hits required for a domain
-	// to be considered "hot" and eligible for prefetching.
-	// Default: 5. Range: 1-100.
-	PrefetchThreshold int `yaml:"prefetch_threshold"`
-
-	// PrefetchTimeWindow is the time window for counting hits.
-	// Only hits within this time window are counted towards the threshold.
-	// Format: duration string (e.g., "1h", "30m", "24h").
-	// Default: "1h" (1 hour).
-	PrefetchTimeWindow timeutil.Duration `yaml:"prefetch_time_window"`
-
-	// PrefetchMaxEntries is the maximum number of domains to track for prefetching.
-	// This prevents unbounded memory growth.
-	// Default: 10000. Range: 1000-100000.
-	PrefetchMaxEntries int `yaml:"prefetch_max_entries"`
-
-	// PrefetchCleanupInterval is the interval between automatic cleanup operations
-	// to remove stale entries. Format: duration string (e.g., "1h", "30m").
-	// Default: "1h".
-	PrefetchCleanupInterval timeutil.Duration `yaml:"prefetch_cleanup_interval"`
-
-	// PrefetchMaxConcurrentRefresh is the maximum number of concurrent domain
-	// refresh operations allowed. This prevents resource exhaustion.
-	// Default: 50. Range: 10-200.
-	// DEPRECATED: Use PrefetchSoftLimit instead.
-	PrefetchMaxConcurrentRefresh int `yaml:"prefetch_max_concurrent_refresh"`
-
-	// PrefetchSoftLimit is the soft limit for concurrent refresh operations.
-	// Under normal conditions, the system will not exceed this limit.
-	// Default: 50. Range: 10-500.
-	PrefetchSoftLimit int `yaml:"prefetch_soft_limit"`
-
-	// PrefetchHardLimit is the hard limit for concurrent refresh operations.
-	// Even urgent tasks will not exceed this limit (except critical cases).
-	// Default: 150. Range: 50-1000.
-	PrefetchHardLimit int `yaml:"prefetch_hard_limit"`
-
-	// PrefetchUrgentQueueSize is the size of the urgent task queue.
-	// Tasks with high priority (expiring soon) go into this queue.
-	// Default: 500. Range: 100-5000.
-	PrefetchUrgentQueueSize int `yaml:"prefetch_urgent_queue_size"`
-
-	// PrefetchNormalQueueSize is the size of the normal task queue.
-	// Tasks with normal priority go into this queue.
-	// Default: 2000. Range: 500-10000.
-	PrefetchNormalQueueSize int `yaml:"prefetch_normal_queue_size"`
-
-	// PrefetchUrgentThreshold is the priority threshold for urgent tasks.
-	// Tasks with priority >= this value are treated as urgent.
-	// Default: 70. Range: 50-90.
-	PrefetchUrgentThreshold int `yaml:"prefetch_urgent_threshold"`
 
 	// Other settings
 
@@ -521,6 +505,42 @@ func (s *Server) newProxyConfig(ctx context.Context) (conf *proxy.Config, err er
 	if err != nil {
 		// Don't wrap the error since it's informative enough as is.
 		return nil, err
+	}
+
+	// Configure prefetch if enabled
+	if srvConf.PrefetchEnabled && srvConf.CacheEnabled {
+		conf.Prefetch = &proxy.PrefetchConfig{
+			Enabled: true,
+		}
+
+		// Apply custom settings if provided
+		if srvConf.PrefetchBatchSize > 0 {
+			conf.Prefetch.BatchSize = srvConf.PrefetchBatchSize
+		}
+		if srvConf.PrefetchCheckInterval > 0 {
+			conf.Prefetch.CheckInterval = time.Duration(srvConf.PrefetchCheckInterval) * time.Second
+		}
+		if srvConf.PrefetchRefreshBefore > 0 {
+			conf.Prefetch.RefreshBefore = time.Duration(srvConf.PrefetchRefreshBefore) * time.Second
+		}
+		if srvConf.PrefetchMaxConcurrent > 0 {
+			conf.Prefetch.MaxConcurrentRequests = srvConf.PrefetchMaxConcurrent
+		}
+		if srvConf.PrefetchThreshold > 0 {
+			conf.Prefetch.Threshold = srvConf.PrefetchThreshold
+		}
+		if srvConf.PrefetchMaxQueueSize > 0 {
+			conf.Prefetch.MaxQueueSize = srvConf.PrefetchMaxQueueSize
+		}
+		if srvConf.PrefetchThresholdWindow > 0 {
+			conf.Prefetch.ThresholdWindow = time.Duration(srvConf.PrefetchThresholdWindow) * time.Second
+		}
+		if srvConf.PrefetchRetentionTime > 0 {
+			conf.Prefetch.RetentionTime = srvConf.PrefetchRetentionTime
+		}
+		if srvConf.PrefetchDynamicRetentionMaxMultiplier > 0 {
+			conf.Prefetch.DynamicRetentionMaxMultiplier = srvConf.PrefetchDynamicRetentionMaxMultiplier
+		}
 	}
 
 	return conf, nil

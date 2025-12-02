@@ -70,24 +70,6 @@ func (s *Server) processQueryLogsAndStats(ctx context.Context, dctx *dnsContext)
 		)
 	}
 
-	// Record domain access for prefetch if enabled and response is successful
-	if s.conf.PrefetchEnabled && s.prefetch != nil && pctx.Res != nil && pctx.Res.Rcode == dns.RcodeSuccess {
-		// Extract TTL from the response
-		var minTTL uint32
-		for _, rr := range pctx.Res.Answer {
-			ttl := rr.Header().Ttl
-			if minTTL == 0 || (ttl > 0 && ttl < minTTL) {
-				minTTL = ttl
-			}
-		}
-		
-		// Only record if we have a valid TTL
-		if minTTL > 0 {
-			s.logger.DebugContext(ctx, "recording domain for prefetch", "domain", host, "ttl", minTTL)
-			s.prefetch.Record(host, minTTL)
-		}
-	}
-
 	return resultCodeSuccess
 }
 

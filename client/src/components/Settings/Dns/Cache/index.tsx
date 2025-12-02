@@ -21,11 +21,9 @@ const CacheConfig = () => {
         cache_optimistic,
         prefetch_enabled,
         prefetch_threshold,
-        prefetch_time_window,
-        prefetch_max_entries,
-        prefetch_cleanup_interval,
-        prefetch_soft_limit,
-        prefetch_hard_limit,
+        prefetch_threshold_window,
+        prefetch_retention_time,
+        prefetch_dynamic_retention_max_multiplier,
     } = useSelector((state: RootState) => state.dnsConfig, shallowEqual);
 
     const handleFormSubmit = (values: any) => {
@@ -48,12 +46,10 @@ const CacheConfig = () => {
                         cache_ttl_min: replaceZeroWithEmptyString(cache_ttl_min),
                         cache_optimistic,
                         prefetch_enabled: prefetch_enabled || false,
-                        prefetch_threshold: replaceZeroWithEmptyString(prefetch_threshold),
-                        prefetch_time_window: replaceZeroWithEmptyString(prefetch_time_window),
-                        prefetch_max_entries: replaceZeroWithEmptyString(prefetch_max_entries),
-                        prefetch_cleanup_interval: replaceZeroWithEmptyString(prefetch_cleanup_interval),
-                        prefetch_soft_limit: replaceZeroWithEmptyString(prefetch_soft_limit),
-                        prefetch_hard_limit: replaceZeroWithEmptyString(prefetch_hard_limit),
+                        prefetch_threshold: replaceZeroWithEmptyString(prefetch_threshold) || 2,
+                        prefetch_threshold_window: replaceZeroWithEmptyString(prefetch_threshold_window) || 600,
+                        prefetch_retention_time: replaceZeroWithEmptyString(prefetch_retention_time) || 0,
+                        prefetch_dynamic_retention_max_multiplier: replaceZeroWithEmptyString(prefetch_dynamic_retention_max_multiplier) || 10,
                     }}
                     onSubmit={handleFormSubmit}
                 />

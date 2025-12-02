@@ -148,7 +148,7 @@ type Config struct {
 	WhitelistFilters []FilterYAML `yaml:"-"`
 
 	// DNSRoutingFilters is the list of filters for DNS routing.
-	DNSRoutingFilters []FilterYAML `yaml:"dns_routing_filters"`
+	DNSRoutingFilters []FilterYAML `yaml:"-"`
 
 	// UserRules is the global list of custom rules.
 	UserRules []string `yaml:"-"`

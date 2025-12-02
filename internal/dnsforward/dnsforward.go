@@ -275,9 +275,6 @@ type Server struct {
 	// configured certificate contains at least a single IP address.
 	hasIPAddrs bool
 
-	// prefetch handles active cache warming for hot domains.
-	prefetch *PrefetchManager
-
 	// dnsCacheStats tracks DNS cache hit/miss statistics.
 	dnsCacheStats *DNSCacheStats
 }
@@ -354,9 +351,6 @@ func NewServer(p DNSCreateParams) (s *Server, err error) {
 		},
 	}
 
-	// Initialize prefetch manager (will be started later if enabled)
-	s.prefetch = NewPrefetchManager(s)
-
 	// Initialize DNS cache statistics
 	s.dnsCacheStats = &DNSCacheStats{
 		lastUpdate: time.Now(),
@@ -392,10 +386,6 @@ func (s *Server) Close(ctx context.Context) {
 
 	if err := s.ipset.close(); err != nil {
 		s.logger.ErrorContext(ctx, "closing ipset", slogutil.KeyError, err)
-	}
-
-	if s.prefetch != nil {
-		s.prefetch.Stop()
 	}
 }
 
@@ -585,20 +575,6 @@ func (s *Server) startLocked(ctx context.Context) error {
 	err := s.dnsProxy.Start(ctx)
 	if err == nil {
 		s.isRunning = true
-		
-		// Start prefetch worker if enabled
-		if s.conf.PrefetchEnabled {
-			// Check if cache is enabled
-			if !s.conf.CacheEnabled {
-				s.logger.Warn("prefetch is enabled but DNS cache is disabled - prefetch will not work effectively")
-				s.logger.Warn("please enable cache_enabled in configuration for prefetch to function properly")
-			}
-			
-			s.prefetch.Start()
-			s.logger.Info("prefetch enabled and started")
-		} else {
-			s.logger.Info("prefetch disabled")
-		}
 	}
 
 	return err
@@ -1137,49 +1113,4 @@ func (s *Server) IsBlockedClient(ip netip.Addr, clientID string) (blocked bool, 
 	}
 
 	return blocked, cmp.Or(rule, clientID)
-}
-
-// refreshCacheEntry performs a direct upstream query to refresh the cache entry
-// for the specified domain. This is used by the prefetch mechanism to update
-// cache entries before they expire, without going through the full DNS request
-// processing pipeline (filters, etc.).
-//
-// This method is more efficient than querying 127.0.0.1:53 because:
-//   - It bypasses request filtering
-//   - It reduces network overhead
-//   - It avoids potential rate limiting issues
-//   - It provides clearer logging for prefetch operations
-func (s *Server) refreshCacheEntry(ctx context.Context, domain string) (err error) {
-	s.serverLock.RLock()
-	defer s.serverLock.RUnlock()
-
-	if s.dnsProxy == nil {
-		return errors.Error("dns proxy not initialized")
-	}
-
-	// Create a DNS query message
-	req := &dns.Msg{}
-	req.SetQuestion(dns.Fqdn(domain), dns.TypeA)
-	req.RecursionDesired = true
-
-	// Use the internal proxy to resolve the query
-	// This will query upstream servers and automatically update the cache
-	dctx := &proxy.DNSContext{
-		Proto: proxy.ProtoUDP,
-		Req:   req,
-	}
-
-	// Resolve using the DNS proxy
-	// The proxy will handle upstream selection, querying, and cache updates
-	err = s.dnsProxy.Resolve(dctx)
-	if err != nil {
-		return fmt.Errorf("resolve %s: %w", domain, err)
-	}
-
-	if dctx.Res == nil {
-		return fmt.Errorf("no response for %s", domain)
-	}
-
-	// Cache is automatically updated by dnsproxy
-	return nil
 }

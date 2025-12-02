@@ -22,7 +22,6 @@ import (
 	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/AdguardTeam/golibs/stringutil"
-	"github.com/AdguardTeam/golibs/timeutil"
 	"github.com/AdguardTeam/golibs/validate"
 )
 
@@ -101,6 +100,36 @@ type jsonDNSConfig struct {
 	// CacheOptimistic defines if expired entries should be served.
 	CacheOptimistic *bool `json:"cache_optimistic"`
 
+	// PrefetchEnabled enables active cache prefetching.
+	PrefetchEnabled *bool `json:"prefetch_enabled"`
+
+	// PrefetchBatchSize is the number of items to process in one batch.
+	PrefetchBatchSize *int `json:"prefetch_batch_size"`
+
+	// PrefetchCheckInterval is the interval between prefetch checks in seconds.
+	PrefetchCheckInterval *int `json:"prefetch_check_interval"`
+
+	// PrefetchRefreshBefore is the time before expiration to trigger refresh in seconds.
+	PrefetchRefreshBefore *int `json:"prefetch_refresh_before"`
+
+	// PrefetchMaxConcurrent is the maximum number of concurrent prefetch requests.
+	PrefetchMaxConcurrent *int `json:"prefetch_max_concurrent"`
+
+	// PrefetchThreshold is the minimum number of requests required to trigger prefetch.
+	PrefetchThreshold *int `json:"prefetch_threshold"`
+
+	// PrefetchMaxQueueSize is the maximum number of items in the prefetch queue.
+	PrefetchMaxQueueSize *int `json:"prefetch_max_queue_size"`
+
+	// PrefetchThresholdWindow is the time window for tracking request counts in seconds.
+	PrefetchThresholdWindow *int `json:"prefetch_threshold_window"`
+
+	// PrefetchRetentionTime is the fixed retention time in seconds.
+	PrefetchRetentionTime *int `json:"prefetch_retention_time"`
+
+	// PrefetchDynamicRetentionMaxMultiplier is the maximum multiplier for dynamic retention.
+	PrefetchDynamicRetentionMaxMultiplier *int `json:"prefetch_dynamic_retention_max_multiplier"`
+
 	// ResolveClients defines if clients IPs should be resolved into hostnames.
 	ResolveClients *bool `json:"resolve_clients"`
 
@@ -135,30 +164,6 @@ type jsonDNSConfig struct {
 
 	// CustomDomainRules is the list of user-defined custom domain routing rules.
 	CustomDomainRules *[]CustomDomainRule `json:"custom_domain_rules"`
-
-	// Prefetch settings
-
-	// PrefetchEnabled defines if DNS prefetch (cache warming) is enabled.
-	PrefetchEnabled *bool `json:"prefetch_enabled"`
-
-	// PrefetchThreshold is the minimum number of hits required for a domain
-	// to be considered "hot" and eligible for prefetching.
-	PrefetchThreshold *int `json:"prefetch_threshold"`
-
-	// PrefetchTimeWindow is the time window for counting hits in seconds.
-	PrefetchTimeWindow *int `json:"prefetch_time_window"`
-
-	// PrefetchMaxEntries is the maximum number of domains to track for prefetching.
-	PrefetchMaxEntries *int `json:"prefetch_max_entries"`
-
-	// PrefetchCleanupInterval is the interval between automatic cleanup operations in seconds.
-	PrefetchCleanupInterval *int `json:"prefetch_cleanup_interval"`
-
-	// PrefetchSoftLimit is the soft limit for concurrent refresh operations.
-	PrefetchSoftLimit *int `json:"prefetch_soft_limit"`
-
-	// PrefetchHardLimit is the hard limit for concurrent refresh operations.
-	PrefetchHardLimit *int `json:"prefetch_hard_limit"`
 }
 
 // jsonUpstreamMode is a enumeration of upstream modes.
@@ -205,6 +210,16 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 	cacheMinTTL := s.conf.CacheMinTTL
 	cacheMaxTTL := s.conf.CacheMaxTTL
 	cacheOptimistic := s.conf.CacheOptimistic
+	prefetchEnabled := s.conf.PrefetchEnabled
+	prefetchBatchSize := s.conf.PrefetchBatchSize
+	prefetchCheckInterval := s.conf.PrefetchCheckInterval
+	prefetchRefreshBefore := s.conf.PrefetchRefreshBefore
+	prefetchMaxConcurrent := s.conf.PrefetchMaxConcurrent
+	prefetchThreshold := s.conf.PrefetchThreshold
+	prefetchMaxQueueSize := s.conf.PrefetchMaxQueueSize
+	prefetchThresholdWindow := s.conf.PrefetchThresholdWindow
+	prefetchRetentionTime := s.conf.PrefetchRetentionTime
+	prefetchDynamicRetentionMaxMultiplier := s.conf.PrefetchDynamicRetentionMaxMultiplier
 	resolveClients := s.conf.AddrProcConf.UseRDNS
 	usePrivateRDNS := s.conf.UsePrivateRDNS
 	localPTRUpstreams := stringutil.CloneSliceOrEmpty(s.conf.LocalPTRResolvers)
@@ -238,15 +253,6 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 	customDomainRules := make([]CustomDomainRule, len(s.conf.CustomDomainRules))
 	copy(customDomainRules, s.conf.CustomDomainRules)
 
-	// Prefetch settings
-	prefetchEnabled := s.conf.PrefetchEnabled
-	prefetchThreshold := s.conf.PrefetchThreshold
-	prefetchTimeWindow := int(time.Duration(s.conf.PrefetchTimeWindow).Seconds())
-	prefetchMaxEntries := s.conf.PrefetchMaxEntries
-	prefetchCleanupInterval := int(time.Duration(s.conf.PrefetchCleanupInterval).Seconds())
-	prefetchSoftLimit := s.conf.PrefetchSoftLimit
-	prefetchHardLimit := s.conf.PrefetchHardLimit
-
 	return &jsonDNSConfig{
 		Upstreams:                &upstreams,
 		UpstreamsFile:            &upstreamFile,
@@ -272,7 +278,17 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 		CacheMinTTL:              &cacheMinTTL,
 		CacheMaxTTL:              &cacheMaxTTL,
 		CacheOptimistic:          &cacheOptimistic,
-		UpstreamMode:             &upstreamMode,
+		PrefetchEnabled:          &prefetchEnabled,
+		PrefetchBatchSize:        &prefetchBatchSize,
+		PrefetchCheckInterval:    &prefetchCheckInterval,
+		PrefetchRefreshBefore:    &prefetchRefreshBefore,
+		PrefetchMaxConcurrent:                 &prefetchMaxConcurrent,
+		PrefetchThreshold:                     &prefetchThreshold,
+		PrefetchMaxQueueSize:                  &prefetchMaxQueueSize,
+		PrefetchThresholdWindow:               &prefetchThresholdWindow,
+		PrefetchRetentionTime:                 &prefetchRetentionTime,
+		PrefetchDynamicRetentionMaxMultiplier: &prefetchDynamicRetentionMaxMultiplier,
+		UpstreamMode:                          &upstreamMode,
 		ResolveClients:           &resolveClients,
 		UsePrivateRDNS:           &usePrivateRDNS,
 		LocalPTRUpstreams:        &localPTRUpstreams,
@@ -281,13 +297,6 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 		UpstreamGroups:           &upstreamGroups,
 		DNSRoutingRules:          &dnsRoutingRules,
 		CustomDomainRules:        &customDomainRules,
-		PrefetchEnabled:          &prefetchEnabled,
-		PrefetchThreshold:        &prefetchThreshold,
-		PrefetchTimeWindow:       &prefetchTimeWindow,
-		PrefetchMaxEntries:       &prefetchMaxEntries,
-		PrefetchCleanupInterval:  &prefetchCleanupInterval,
-		PrefetchSoftLimit:        &prefetchSoftLimit,
-		PrefetchHardLimit:        &prefetchHardLimit,
 	}
 }
 
@@ -728,6 +737,16 @@ func (s *Server) setConfigRestartable(dc *jsonDNSConfig) (shouldRestart bool) {
 		setIfNotNil(&s.conf.CacheMinTTL, dc.CacheMinTTL),
 		setIfNotNil(&s.conf.CacheMaxTTL, dc.CacheMaxTTL),
 		setIfNotNil(&s.conf.CacheOptimistic, dc.CacheOptimistic),
+		setIfNotNil(&s.conf.PrefetchEnabled, dc.PrefetchEnabled),
+		setIfNotNil(&s.conf.PrefetchBatchSize, dc.PrefetchBatchSize),
+		setIfNotNil(&s.conf.PrefetchCheckInterval, dc.PrefetchCheckInterval),
+		setIfNotNil(&s.conf.PrefetchRefreshBefore, dc.PrefetchRefreshBefore),
+		setIfNotNil(&s.conf.PrefetchMaxConcurrent, dc.PrefetchMaxConcurrent),
+		setIfNotNil(&s.conf.PrefetchThreshold, dc.PrefetchThreshold),
+		setIfNotNil(&s.conf.PrefetchMaxQueueSize, dc.PrefetchMaxQueueSize),
+		setIfNotNil(&s.conf.PrefetchThresholdWindow, dc.PrefetchThresholdWindow),
+		setIfNotNil(&s.conf.PrefetchRetentionTime, dc.PrefetchRetentionTime),
+		setIfNotNil(&s.conf.PrefetchDynamicRetentionMaxMultiplier, dc.PrefetchDynamicRetentionMaxMultiplier),
 		setIfNotNil(&s.conf.AddrProcConf.UseRDNS, dc.ResolveClients),
 		setIfNotNil(&s.conf.UsePrivateRDNS, dc.UsePrivateRDNS),
 		setIfNotNil(&s.conf.RatelimitSubnetLenIPv4, dc.RatelimitSubnetLenIPv4),
@@ -736,11 +755,6 @@ func (s *Server) setConfigRestartable(dc *jsonDNSConfig) (shouldRestart bool) {
 		setIfNotNil(&s.conf.UpstreamGroups, dc.UpstreamGroups),
 		setIfNotNil(&s.conf.DNSRoutingRules, dc.DNSRoutingRules),
 		setIfNotNil(&s.conf.CustomDomainRules, dc.CustomDomainRules),
-		setIfNotNil(&s.conf.PrefetchEnabled, dc.PrefetchEnabled),
-		setIfNotNil(&s.conf.PrefetchThreshold, dc.PrefetchThreshold),
-		setIfNotNil(&s.conf.PrefetchMaxEntries, dc.PrefetchMaxEntries),
-		setIfNotNil(&s.conf.PrefetchSoftLimit, dc.PrefetchSoftLimit),
-		setIfNotNil(&s.conf.PrefetchHardLimit, dc.PrefetchHardLimit),
 	} {
 		shouldRestart = shouldRestart || hasSet
 		if shouldRestart {
@@ -757,22 +771,6 @@ func (s *Server) setConfigRestartable(dc *jsonDNSConfig) (shouldRestart bool) {
 		ut := time.Duration(*dc.UpstreamTimeout) * time.Second
 		if s.conf.UpstreamTimeout != ut {
 			s.conf.UpstreamTimeout = ut
-			shouldRestart = true
-		}
-	}
-
-	if dc.PrefetchTimeWindow != nil {
-		tw := timeutil.Duration(time.Duration(*dc.PrefetchTimeWindow) * time.Second)
-		if s.conf.PrefetchTimeWindow != tw {
-			s.conf.PrefetchTimeWindow = tw
-			shouldRestart = true
-		}
-	}
-
-	if dc.PrefetchCleanupInterval != nil {
-		ci := timeutil.Duration(time.Duration(*dc.PrefetchCleanupInterval) * time.Second)
-		if s.conf.PrefetchCleanupInterval != ci {
-			s.conf.PrefetchCleanupInterval = ci
 			shouldRestart = true
 		}
 	}
@@ -866,40 +864,6 @@ type dashboardMetricsJSON struct {
 	CacheTTLMin     int     `json:"cache_ttl_min"`
 	CacheTTLMax     int     `json:"cache_ttl_max"`
 	CacheOptimistic bool    `json:"cache_optimistic"`
-	
-	// Prefetch metrics
-	PrefetchEnabled    bool  `json:"prefetch_enabled"`
-	PrefetchHotDomains int64 `json:"prefetch_hot_domains"`
-	PrefetchCompleted  int64 `json:"prefetch_completed"`
-	PrefetchFailed     int64 `json:"prefetch_failed"`
-	PrefetchSuccessRate float64 `json:"prefetch_success_rate"`
-}
-
-// prefetchStatusJSON is the response for the GET /control/prefetch_status endpoint.
-type prefetchStatusJSON struct {
-	Enabled bool `json:"enabled"`
-	
-	// Configuration
-	Threshold       int `json:"threshold"`
-	TimeWindow      int `json:"time_window"`       // in seconds
-	MaxEntries      int `json:"max_entries"`
-	CleanupInterval int `json:"cleanup_interval"`  // in seconds
-	SoftLimit       int `json:"soft_limit"`
-	HardLimit       int `json:"hard_limit"`
-	
-	// Runtime metrics
-	CurrentActive  int64 `json:"current_active"`
-	UrgentQueue    int64 `json:"urgent_queue"`
-	NormalQueue    int64 `json:"normal_queue"`
-	SoftLimitHits  int64 `json:"soft_limit_hits"`
-	HardLimitHits  int64 `json:"hard_limit_hits"`
-	TasksUpgraded  int64 `json:"tasks_upgraded"`
-	TasksDropped   int64 `json:"tasks_dropped"`
-	TasksCompleted int64 `json:"tasks_completed"`
-	TasksFailed    int64 `json:"tasks_failed"`
-	TrackedHits    int64 `json:"tracked_hits"`
-	HotDomains     int64 `json:"hot_domains"`
-	TrackedDomains int64 `json:"tracked_domains"`
 }
 
 // cacheMetricsJSON is the response for the GET /control/cache_metrics endpoint.
@@ -912,18 +876,6 @@ type cacheMetricsJSON struct {
 	CacheMisses  int64   `json:"cache_misses"`
 	History      []float64 `json:"history"`
 	NextUpdateIn int64   `json:"next_update_in"` // seconds until next history update
-}
-
-// prefetchMetricsJSON is the response for the GET /control/prefetch_metrics endpoint.
-type prefetchMetricsJSON struct {
-	PrefetchEnabled   bool    `json:"prefetch_enabled"`
-	PrefetchStatus    string  `json:"prefetch_status"`
-	PrefetchHotDomains int64  `json:"prefetch_hot_domains"`
-	PrefetchCompleted int64   `json:"prefetch_completed"`
-	PrefetchFailed    int64   `json:"prefetch_failed"`
-	PrefetchSuccessRate float64 `json:"prefetch_success_rate"`
-	PrefetchQueueSize int64   `json:"prefetch_queue_size"`
-	LastPrefetchTime  string  `json:"last_prefetch_time"`
 }
 
 // handleGetDashboardMetrics handles requests to the GET /control/dashboard_metrics endpoint.
@@ -939,60 +891,6 @@ func (s *Server) handleGetDashboardMetrics(w http.ResponseWriter, r *http.Reques
 		CacheTTLMin:     int(s.conf.CacheMinTTL),
 		CacheTTLMax:     int(s.conf.CacheMaxTTL),
 		CacheOptimistic: s.conf.CacheOptimistic,
-		PrefetchEnabled: s.conf.PrefetchEnabled,
-	}
-	
-	// Get Prefetch metrics if enabled
-	if s.conf.PrefetchEnabled && s.prefetch != nil {
-		metrics := s.prefetch.GetMetrics()
-		resp.PrefetchHotDomains = metrics["tracked_domains"] // Use tracked_domains for stable count
-		resp.PrefetchCompleted = metrics["tasks_completed"]
-		resp.PrefetchFailed = metrics["tasks_failed"]
-		
-		// Calculate success rate
-		total := resp.PrefetchCompleted + resp.PrefetchFailed
-		if total > 0 {
-			resp.PrefetchSuccessRate = float64(resp.PrefetchCompleted) / float64(total) * 100
-		} else {
-			resp.PrefetchSuccessRate = 100.0
-		}
-	}
-	
-	aghhttp.WriteJSONResponseOK(ctx, s.logger, w, r, resp)
-}
-
-// handleGetPrefetchStatus handles requests to the GET /control/prefetch_status endpoint.
-func (s *Server) handleGetPrefetchStatus(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	
-	s.serverLock.RLock()
-	defer s.serverLock.RUnlock()
-	
-	resp := &prefetchStatusJSON{
-		Enabled:         s.conf.PrefetchEnabled,
-		Threshold:       s.conf.PrefetchThreshold,
-		TimeWindow:      int(time.Duration(s.conf.PrefetchTimeWindow).Seconds()),
-		MaxEntries:      s.conf.PrefetchMaxEntries,
-		CleanupInterval: int(time.Duration(s.conf.PrefetchCleanupInterval).Seconds()),
-		SoftLimit:       s.conf.PrefetchSoftLimit,
-		HardLimit:       s.conf.PrefetchHardLimit,
-	}
-	
-	// Get runtime metrics if prefetch is enabled
-	if s.conf.PrefetchEnabled && s.prefetch != nil {
-		metrics := s.prefetch.GetMetrics()
-		resp.CurrentActive = metrics["current_active"]
-		resp.UrgentQueue = metrics["urgent_queue"]
-		resp.NormalQueue = metrics["normal_queue"]
-		resp.SoftLimitHits = metrics["soft_limit_hits"]
-		resp.HardLimitHits = metrics["hard_limit_hits"]
-		resp.TasksUpgraded = metrics["tasks_upgraded"]
-		resp.TasksDropped = metrics["tasks_dropped"]
-		resp.TasksCompleted = metrics["tasks_completed"]
-		resp.TasksFailed = metrics["tasks_failed"]
-		resp.TrackedHits = metrics["tracked_hits"]
-		resp.HotDomains = metrics["hot_domains"]
-		resp.TrackedDomains = metrics["tracked_domains"]
 	}
 	
 	aghhttp.WriteJSONResponseOK(ctx, s.logger, w, r, resp)
@@ -1028,45 +926,55 @@ func (s *Server) handleGetCacheMetrics(w http.ResponseWriter, r *http.Request) {
 	aghhttp.WriteJSONResponseOK(ctx, s.logger, w, r, resp)
 }
 
+// prefetchMetricsJSON is the response for the GET /control/prefetch_metrics endpoint.
+type prefetchMetricsJSON struct {
+	PrefetchEnabled     bool    `json:"prefetch_enabled"`
+	PrefetchStatus      string  `json:"prefetch_status"`
+	PrefetchHotDomains  int     `json:"prefetch_hot_domains"`
+	PrefetchCompleted   int64   `json:"prefetch_completed"`
+	PrefetchFailed      int64   `json:"prefetch_failed"`
+	PrefetchSuccessRate float64 `json:"prefetch_success_rate"`
+	PrefetchQueueSize   int     `json:"prefetch_queue_size"`
+	LastPrefetchTime    string  `json:"last_prefetch_time"`
+}
+
 // handleGetPrefetchMetrics handles requests to the GET /control/prefetch_metrics endpoint.
 func (s *Server) handleGetPrefetchMetrics(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	
+
 	s.serverLock.RLock()
 	defer s.serverLock.RUnlock()
-	
+
 	resp := &prefetchMetricsJSON{
 		PrefetchEnabled: s.conf.PrefetchEnabled,
 		PrefetchStatus:  "idle",
 	}
-	
-	// Get Prefetch metrics if enabled
-	if s.conf.PrefetchEnabled && s.prefetch != nil {
-		metrics := s.prefetch.GetMetrics()
-		resp.PrefetchHotDomains = metrics["tracked_domains"] // Use tracked_domains for stable count
-		resp.PrefetchCompleted = metrics["tasks_completed"]
-		resp.PrefetchFailed = metrics["tasks_failed"]
-		resp.PrefetchQueueSize = metrics["urgent_queue"] + metrics["normal_queue"]
-		
-		// Determine status
-		if metrics["current_active"] > 0 {
-			resp.PrefetchStatus = "active"
-		}
-		
-		// Calculate success rate
-		total := resp.PrefetchCompleted + resp.PrefetchFailed
-		if total > 0 {
-			resp.PrefetchSuccessRate = float64(resp.PrefetchCompleted) / float64(total) * 100
-		} else {
-			resp.PrefetchSuccessRate = 100.0
-		}
-		
-		// Set last prefetch time from actual metrics
-		if lastPrefetchUnix, ok := metrics["last_prefetch_unix"]; ok && lastPrefetchUnix > 0 {
-			resp.LastPrefetchTime = time.Unix(lastPrefetchUnix, 0).Format(time.RFC3339)
+
+	// Get prefetch statistics if enabled and proxy is running
+	if s.conf.PrefetchEnabled && s.dnsProxy != nil {
+		stats := s.dnsProxy.GetPrefetchStats()
+		if stats != nil {
+			resp.PrefetchHotDomains = stats.UniqueDomains
+			resp.PrefetchCompleted = stats.TotalRefreshed
+			resp.PrefetchFailed = stats.TotalFailed
+			resp.PrefetchQueueSize = stats.QueueLen
+			resp.LastPrefetchTime = stats.LastRefreshTime
+
+			// Calculate success rate
+			total := stats.TotalRefreshed + stats.TotalFailed
+			if total > 0 {
+				resp.PrefetchSuccessRate = float64(stats.TotalRefreshed) / float64(total) * 100
+			} else {
+				resp.PrefetchSuccessRate = 100.0
+			}
+
+			// Determine status based on activity
+			if stats.ScheduledCount > 0 || stats.QueueLen > 0 {
+				resp.PrefetchStatus = "active"
+			}
 		}
 	}
-	
+
 	aghhttp.WriteJSONResponseOK(ctx, s.logger, w, r, resp)
 }
 
@@ -1167,7 +1075,6 @@ func (s *Server) registerHandlers() {
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/test_upstream_group", s.handleTestUpstreamGroup)
 	s.conf.HTTPReg.Register(http.MethodPost, "/control/validate_clash_rule", s.handleValidateClashRule)
 	s.conf.HTTPReg.Register(http.MethodGet, "/control/dashboard_metrics", s.handleGetDashboardMetrics)
-	s.conf.HTTPReg.Register(http.MethodGet, "/control/prefetch_status", s.handleGetPrefetchStatus)
 	s.conf.HTTPReg.Register(http.MethodGet, "/control/cache_metrics", s.handleGetCacheMetrics)
 	s.conf.HTTPReg.Register(http.MethodGet, "/control/prefetch_metrics", s.handleGetPrefetchMetrics)
 

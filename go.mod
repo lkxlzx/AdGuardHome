@@ -2,6 +2,11 @@ module github.com/AdguardTeam/AdGuardHome
 
 go 1.25.4
 
+// Use custom dnsproxy fork with active prefetch functionality
+// Fork: https://github.com/lkxlzx/dnsproxy (tag: v0.78.2)
+// Note: Set GOPRIVATE=github.com/lkxlzx/* when running go mod tidy
+replace github.com/AdguardTeam/dnsproxy => github.com/lkxlzx/dnsproxy v0.78.2
+
 require (
 	github.com/AdguardTeam/dnsproxy v0.77.0
 	github.com/AdguardTeam/golibs v0.35.2
@@ -28,7 +33,7 @@ require (
 	// own code for that.  Perhaps, use gopacket.
 	github.com/mdlayher/raw v0.1.0
 	github.com/miekg/dns v1.1.68
-	github.com/quic-go/quic-go v0.55.0
+	github.com/quic-go/quic-go v0.56.0
 	github.com/stretchr/testify v1.11.1
 	github.com/ti-mo/netfilter v0.5.3
 	go.etcd.io/bbolt v1.4.3
@@ -40,6 +45,8 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	howett.net/plist v1.0.1
 )
+
+require gopkg.in/yaml.v3 v3.0.1
 
 require (
 	cloud.google.com/go v0.123.0 // indirect
@@ -86,7 +93,6 @@ require (
 	go.opentelemetry.io/otel v1.38.0 // indirect
 	go.opentelemetry.io/otel/metric v1.38.0 // indirect
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
-	go.uber.org/mock v0.6.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20251113190631-e25ba8c21ef6 // indirect
 	golang.org/x/mod v0.30.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
@@ -100,7 +106,6 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251111163417-95abcf5c77ba // indirect
 	google.golang.org/grpc v1.77.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	honnef.co/go/tools v0.6.1 // indirect
 	mvdan.cc/editorconfig v0.3.0 // indirect
 	mvdan.cc/gofumpt v0.9.2 // indirect

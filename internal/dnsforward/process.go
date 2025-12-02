@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AdguardTeam/AdGuardHome/internal/aghnet"
 	"github.com/AdguardTeam/AdGuardHome/internal/filtering"
 	"github.com/AdguardTeam/dnsproxy/proxy"
 	"github.com/AdguardTeam/golibs/netutil"
@@ -543,36 +542,6 @@ func (s *Server) processUpstream(ctx context.Context, dctx *dnsContext) (rc resu
 			}
 		}
 		s.dnsCacheStats.RecordQuery(isCacheHit)
-		
-		// Record cache hit for prefetch (cache hits indicate hot domains)
-		// Cache hits bypass threshold checking and are directly added to prefetch queue
-		if isCacheHit && s.conf.PrefetchEnabled && s.prefetch != nil && pctx.Res != nil {
-			q := pctx.Req.Question[0]
-			host := aghnet.NormalizeDomain(q.Name)
-			
-			// Extract TTL from cached response
-			var minTTL uint32
-			for _, rr := range pctx.Res.Answer {
-				ttl := rr.Header().Ttl
-				if minTTL == 0 || (ttl > 0 && ttl < minTTL) {
-					minTTL = ttl
-				}
-			}
-			
-			// For cache hits, even if TTL is very low or 0, we still want to record
-			// Use a minimum TTL to ensure the domain is tracked
-			if minTTL == 0 && len(pctx.Res.Answer) > 0 {
-				// If TTL is 0, use a small default (30 seconds) to trigger prefetch soon
-				minTTL = 30
-				s.logger.DebugContext(ctx, "cache hit with zero TTL, using default", "domain", host, "default_ttl", minTTL)
-			}
-			
-			// Record cache hit - bypasses threshold checking
-			if minTTL > 0 {
-				s.logger.DebugContext(ctx, "recording cache hit for prefetch", "domain", host, "ttl", minTTL)
-				s.prefetch.RecordCacheHit(host, minTTL)
-			}
-		}
 	}
 
 	return resultCodeSuccess
@@ -723,20 +692,6 @@ func (s *Server) setDNSRoutingUpstream(ctx context.Context, pctx *proxy.DNSConte
 func (s *Server) processFilteringAfterResponse(ctx context.Context, dctx *dnsContext) (rc resultCode) {
 	s.logger.DebugContext(ctx, "started processing filtering after response")
 	defer s.logger.DebugContext(ctx, "finished processing filtering after response")
-
-	// Record domain for prefetch if it came from upstream
-	if dctx.responseFromUpstream && dctx.proxyCtx.Res != nil && s.prefetch != nil {
-		// Extract TTL from the first answer
-		var ttl uint32
-		if len(dctx.proxyCtx.Res.Answer) > 0 {
-			ttl = dctx.proxyCtx.Res.Answer[0].Header().Ttl
-		}
-		// Record domain for prefetch
-		// Note: We use the original question name
-		if len(dctx.proxyCtx.Req.Question) > 0 {
-			s.prefetch.Record(dctx.proxyCtx.Req.Question[0].Name, ttl)
-		}
-	}
 
 	switch res := dctx.result; res.Reason {
 	case filtering.NotFilteredAllowList:

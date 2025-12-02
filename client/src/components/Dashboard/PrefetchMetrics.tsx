@@ -154,9 +154,9 @@ const PrefetchMetrics = () => {
                     <div className="prefetch-detail">
                         <span className="prefetch-detail__label">{t('last_prefetch')}:</span>
                         <span className="prefetch-detail__value text-muted">
-                            {data.last_prefetch_time 
+                            {data.last_prefetch_time && data.last_prefetch_time !== 'never'
                                 ? new Date(data.last_prefetch_time).toLocaleString()
-                                : '--'}
+                                : t('never')}
                         </span>
                     </div>
                 </div>

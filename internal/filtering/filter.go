@@ -747,9 +747,10 @@ func (d *DNSFilter) updateIntl(ctx context.Context, flt *FilterYAML) (ok bool, e
 	bufPtr := d.bufPool.Get()
 	defer d.bufPool.Put(bufPtr)
 
-	// Check if this is a domain routing rule (from dns_routing_filters list) and a Clash rule
+	// Check if this is a domain routing rule (from dns_routing_filters list)
 	isDomainRoutingRule := flt.dnsRouting
 	isClashRule := IsClashRuleURL(flt.URL)
+	isGFWList := IsGFWListURL(flt.URL)
 
 	if isDomainRoutingRule && isClashRule {
 		// Process Clash rules: filter out IP rules and keep only domain rules
@@ -770,6 +771,30 @@ func (d *DNSFilter) updateIntl(ctx context.Context, flt *FilterYAML) (ok bool, e
 		)
 
 		// Create a parse result for Clash rules
+		res = &rulelist.ParseResult{
+			RulesCount: stats.ValidDomains,
+			// Calculate checksum from the processed content
+			Checksum: flt.checksum + 1, // Simple increment to force update
+		}
+	} else if isDomainRoutingRule && isGFWList {
+		// Process GFWList: decode base64 and extract domain rules
+		d.logger.DebugContext(ctx, "processing gfwlist for domain routing", "id", flt.ID, "url", flt.URL)
+
+		stats, err := ProcessGFWListFile(r, tmpFile)
+		if err != nil {
+			return false, fmt.Errorf("processing gfwlist: %w", err)
+		}
+
+		d.logger.InfoContext(
+			ctx,
+			"gfwlist processed",
+			"id", flt.ID,
+			"total_rules", stats.TotalRules,
+			"valid_domains", stats.ValidDomains,
+			"skipped_rules", stats.SkippedRules,
+		)
+
+		// Create a parse result for GFWList
 		res = &rulelist.ParseResult{
 			RulesCount: stats.ValidDomains,
 			// Calculate checksum from the processed content

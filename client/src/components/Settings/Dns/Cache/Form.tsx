@@ -41,44 +41,28 @@ const PREFETCH_INPUTS_FIELDS = [
         max: 100,
     },
     {
-        name: CACHE_CONFIG_FIELDS.prefetch_time_window,
-        title: i18next.t('prefetch_time_window'),
-        description: i18next.t('prefetch_time_window_desc'),
-        placeholder: i18next.t('prefetch_time_window_placeholder'),
-        min: 60,
+        name: CACHE_CONFIG_FIELDS.prefetch_threshold_window,
+        title: i18next.t('prefetch_threshold_window'),
+        description: i18next.t('prefetch_threshold_window_desc'),
+        placeholder: i18next.t('prefetch_threshold_window_placeholder'),
+        min: 0,
         max: 86400,
     },
     {
-        name: CACHE_CONFIG_FIELDS.prefetch_max_entries,
-        title: i18next.t('prefetch_max_entries'),
-        description: i18next.t('prefetch_max_entries_desc'),
-        placeholder: i18next.t('prefetch_max_entries_placeholder'),
-        min: 1000,
-        max: 100000,
+        name: CACHE_CONFIG_FIELDS.prefetch_retention_time,
+        title: i18next.t('prefetch_retention_time'),
+        description: i18next.t('prefetch_retention_time_desc'),
+        placeholder: i18next.t('prefetch_retention_time_placeholder'),
+        min: 0,
+        max: 86400,
     },
     {
-        name: CACHE_CONFIG_FIELDS.prefetch_cleanup_interval,
-        title: i18next.t('prefetch_cleanup_interval'),
-        description: i18next.t('prefetch_cleanup_interval_desc'),
-        placeholder: i18next.t('prefetch_cleanup_interval_placeholder'),
-        min: 900,
-        max: 14400,
-    },
-    {
-        name: CACHE_CONFIG_FIELDS.prefetch_soft_limit,
-        title: i18next.t('prefetch_soft_limit'),
-        description: i18next.t('prefetch_soft_limit_desc'),
-        placeholder: i18next.t('prefetch_soft_limit_placeholder'),
-        min: 10,
-        max: 500,
-    },
-    {
-        name: CACHE_CONFIG_FIELDS.prefetch_hard_limit,
-        title: i18next.t('prefetch_hard_limit'),
-        description: i18next.t('prefetch_hard_limit_desc'),
-        placeholder: i18next.t('prefetch_hard_limit_placeholder'),
-        min: 50,
-        max: 1000,
+        name: CACHE_CONFIG_FIELDS.prefetch_dynamic_retention_max_multiplier,
+        title: i18next.t('prefetch_dynamic_retention_max_multiplier'),
+        description: i18next.t('prefetch_dynamic_retention_max_multiplier_desc'),
+        placeholder: i18next.t('prefetch_dynamic_retention_max_multiplier_placeholder'),
+        min: 0,
+        max: 100,
     },
 ];
 
@@ -90,11 +74,9 @@ type FormData = {
     cache_optimistic: boolean;
     prefetch_enabled: boolean;
     prefetch_threshold: number;
-    prefetch_time_window: number;
-    prefetch_max_entries: number;
-    prefetch_cleanup_interval: number;
-    prefetch_soft_limit: number;
-    prefetch_hard_limit: number;
+    prefetch_threshold_window: number;
+    prefetch_retention_time: number;
+    prefetch_dynamic_retention_max_multiplier: number;
 };
 
 type CacheFormProps = {
@@ -123,12 +105,10 @@ const Form = ({ initialValues, onSubmit }: CacheFormProps) => {
             cache_ttl_max: initialValues?.cache_ttl_max || 0,
             cache_optimistic: initialValues?.cache_optimistic || false,
             prefetch_enabled: initialValues?.prefetch_enabled || false,
-            prefetch_threshold: initialValues?.prefetch_threshold || 5,
-            prefetch_time_window: initialValues?.prefetch_time_window || 3600,
-            prefetch_max_entries: initialValues?.prefetch_max_entries || 10000,
-            prefetch_cleanup_interval: initialValues?.prefetch_cleanup_interval || 3600,
-            prefetch_soft_limit: initialValues?.prefetch_soft_limit || 50,
-            prefetch_hard_limit: initialValues?.prefetch_hard_limit || 150,
+            prefetch_threshold: initialValues?.prefetch_threshold || 2,
+            prefetch_threshold_window: initialValues?.prefetch_threshold_window || 600,
+            prefetch_retention_time: initialValues?.prefetch_retention_time || 0,
+            prefetch_dynamic_retention_max_multiplier: initialValues?.prefetch_dynamic_retention_max_multiplier || 10,
         },
     });
 
@@ -137,13 +117,9 @@ const Form = ({ initialValues, onSubmit }: CacheFormProps) => {
     const cache_ttl_min = watch('cache_ttl_min');
     const cache_ttl_max = watch('cache_ttl_max');
     const prefetch_enabled = watch('prefetch_enabled');
-    const prefetch_soft_limit = watch('prefetch_soft_limit');
-    const prefetch_hard_limit = watch('prefetch_hard_limit');
 
     const minExceedsMax = cache_ttl_min > 0 && cache_ttl_max > 0 && cache_ttl_min > cache_ttl_max;
     const cacheSizeZeroWhenEnabled = cache_enabled && cache_size === 0;
-    const prefetchSoftExceedsHard =
-        prefetch_soft_limit > 0 && prefetch_hard_limit > 0 && prefetch_soft_limit > prefetch_hard_limit;
 
     const handleClearCache = () => {
         if (window.confirm(t('confirm_dns_cache_clear'))) {
@@ -179,9 +155,7 @@ const Form = ({ initialValues, onSubmit }: CacheFormProps) => {
                                 <label htmlFor={name} className="form__label form__label--with-desc">
                                     {title}
                                 </label>
-
                                 <div className="form__desc form__desc--top">{description}</div>
-
                                 <input
                                     type="number"
                                     data-testid={`dns_${name}`}
@@ -195,7 +169,6 @@ const Form = ({ initialValues, onSubmit }: CacheFormProps) => {
                                         setValueAs: (value) => replaceZeroWithEmptyString(value),
                                     })}
                                 />
-
                                 {name === CACHE_CONFIG_FIELDS.cache_size && cacheSizeZeroWhenEnabled && (
                                     <span className="form__message form__message--error">
                                         {t('cache_size_validation')}
@@ -233,6 +206,7 @@ const Form = ({ initialValues, onSubmit }: CacheFormProps) => {
             <div className="row">
                 <div className="col-12">
                     <h5 className="mb-3">{t('prefetch_settings')}</h5>
+                    <p className="form__desc mb-3">{t('prefetch_settings_desc')}</p>
                 </div>
                 <div className="col-12 col-md-7">
                     <div className="form__group form__group--settings">
@@ -245,14 +219,19 @@ const Form = ({ initialValues, onSubmit }: CacheFormProps) => {
                                     data-testid="dns_prefetch_enabled"
                                     title={t('prefetch_enabled')}
                                     subtitle={t('prefetch_enabled_desc')}
-                                    disabled={processingSetConfig}
+                                    disabled={processingSetConfig || !cache_enabled}
                                 />
                             )}
                         />
+                        {!cache_enabled && (
+                            <span className="form__message form__message--warning">
+                                {t('prefetch_requires_cache')}
+                            </span>
+                        )}
                     </div>
                 </div>
 
-                {prefetch_enabled &&
+                {prefetch_enabled && cache_enabled &&
                     PREFETCH_INPUTS_FIELDS.map(({ name, title, description, placeholder, min, max }) => (
                         <div className="col-12" key={name}>
                             <div className="col-12 col-md-7 p-0">
@@ -260,9 +239,7 @@ const Form = ({ initialValues, onSubmit }: CacheFormProps) => {
                                     <label htmlFor={name} className="form__label form__label--with-desc">
                                         {title}
                                     </label>
-
                                     <div className="form__desc form__desc--top">{description}</div>
-
                                     <input
                                         type="number"
                                         data-testid={`dns_${name}`}
@@ -280,22 +257,13 @@ const Form = ({ initialValues, onSubmit }: CacheFormProps) => {
                             </div>
                         </div>
                     ))}
-                {prefetchSoftExceedsHard && (
-                    <span className="text-danger pl-3 pb-3">{t('prefetch_limit_validation')}</span>
-                )}
             </div>
 
             <button
                 type="submit"
                 data-testid="dns_save"
                 className="btn btn-success btn-standard btn-large"
-                disabled={
-                    isSubmitting ||
-                    processingSetConfig ||
-                    minExceedsMax ||
-                    cacheSizeZeroWhenEnabled ||
-                    prefetchSoftExceedsHard
-                }>
+                disabled={isSubmitting || processingSetConfig || minExceedsMax || cacheSizeZeroWhenEnabled}>
                 {t('save_btn')}
             </button>
 
