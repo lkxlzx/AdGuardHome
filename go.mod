@@ -3,9 +3,9 @@ module github.com/AdguardTeam/AdGuardHome
 go 1.25.4
 
 // Use custom dnsproxy fork with active prefetch functionality
-// Fork: https://github.com/lkxlzx/dnsproxy (tag: v0.78.2)
+// Fork: https://github.com/lkxlzx/dnsproxy (tag: v0.79.2)
 // Note: Set GOPRIVATE=github.com/lkxlzx/* when running go mod tidy
-replace github.com/AdguardTeam/dnsproxy => github.com/lkxlzx/dnsproxy v0.78.2
+replace github.com/AdguardTeam/dnsproxy => github.com/lkxlzx/dnsproxy v0.79.2
 
 require (
 	github.com/AdguardTeam/dnsproxy v0.77.0

@@ -19,11 +19,9 @@ const CacheConfig = () => {
         cache_ttl_max,
         cache_ttl_min,
         cache_optimistic,
-        prefetch_enabled,
-        prefetch_threshold,
-        prefetch_threshold_window,
-        prefetch_retention_time,
-        prefetch_dynamic_retention_max_multiplier,
+        cache_proactive_refresh_time,
+        cache_proactive_cooldown_period,
+        cache_proactive_cooldown_threshold,
     } = useSelector((state: RootState) => state.dnsConfig, shallowEqual);
 
     const handleFormSubmit = (values: any) => {
@@ -45,11 +43,9 @@ const CacheConfig = () => {
                         cache_ttl_max: replaceZeroWithEmptyString(cache_ttl_max),
                         cache_ttl_min: replaceZeroWithEmptyString(cache_ttl_min),
                         cache_optimistic,
-                        prefetch_enabled: prefetch_enabled || false,
-                        prefetch_threshold: replaceZeroWithEmptyString(prefetch_threshold) || 2,
-                        prefetch_threshold_window: replaceZeroWithEmptyString(prefetch_threshold_window) || 600,
-                        prefetch_retention_time: replaceZeroWithEmptyString(prefetch_retention_time) || 0,
-                        prefetch_dynamic_retention_max_multiplier: replaceZeroWithEmptyString(prefetch_dynamic_retention_max_multiplier) || 10,
+                        cache_proactive_refresh_time: replaceZeroWithEmptyString(cache_proactive_refresh_time) || 30000,
+                        cache_proactive_cooldown_period: replaceZeroWithEmptyString(cache_proactive_cooldown_period) || 1800,
+                        cache_proactive_cooldown_threshold: replaceZeroWithEmptyString(cache_proactive_cooldown_threshold) || 3,
                     }}
                     onSubmit={handleFormSubmit}
                 />

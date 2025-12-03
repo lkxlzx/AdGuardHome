@@ -31,37 +31,29 @@ const INPUTS_FIELDS = [
     },
 ];
 
-const PREFETCH_INPUTS_FIELDS = [
+const PROACTIVE_REFRESH_INPUTS_FIELDS = [
     {
-        name: CACHE_CONFIG_FIELDS.prefetch_threshold,
-        title: i18next.t('prefetch_threshold'),
-        description: i18next.t('prefetch_threshold_desc'),
-        placeholder: i18next.t('prefetch_threshold_placeholder'),
-        min: 1,
-        max: 100,
+        name: CACHE_CONFIG_FIELDS.cache_proactive_refresh_time,
+        title: i18next.t('cache_proactive_refresh_time'),
+        description: i18next.t('cache_proactive_refresh_time_desc'),
+        placeholder: i18next.t('cache_proactive_refresh_time_placeholder'),
+        min: 500,
+        max: 300000,
     },
     {
-        name: CACHE_CONFIG_FIELDS.prefetch_threshold_window,
-        title: i18next.t('prefetch_threshold_window'),
-        description: i18next.t('prefetch_threshold_window_desc'),
-        placeholder: i18next.t('prefetch_threshold_window_placeholder'),
-        min: 0,
+        name: CACHE_CONFIG_FIELDS.cache_proactive_cooldown_period,
+        title: i18next.t('cache_proactive_cooldown_period'),
+        description: i18next.t('cache_proactive_cooldown_period_desc'),
+        placeholder: i18next.t('cache_proactive_cooldown_period_placeholder'),
+        min: 60,
         max: 86400,
     },
     {
-        name: CACHE_CONFIG_FIELDS.prefetch_retention_time,
-        title: i18next.t('prefetch_retention_time'),
-        description: i18next.t('prefetch_retention_time_desc'),
-        placeholder: i18next.t('prefetch_retention_time_placeholder'),
-        min: 0,
-        max: 86400,
-    },
-    {
-        name: CACHE_CONFIG_FIELDS.prefetch_dynamic_retention_max_multiplier,
-        title: i18next.t('prefetch_dynamic_retention_max_multiplier'),
-        description: i18next.t('prefetch_dynamic_retention_max_multiplier_desc'),
-        placeholder: i18next.t('prefetch_dynamic_retention_max_multiplier_placeholder'),
-        min: 0,
+        name: CACHE_CONFIG_FIELDS.cache_proactive_cooldown_threshold,
+        title: i18next.t('cache_proactive_cooldown_threshold'),
+        description: i18next.t('cache_proactive_cooldown_threshold_desc'),
+        placeholder: i18next.t('cache_proactive_cooldown_threshold_placeholder'),
+        min: -1,
         max: 100,
     },
 ];
@@ -71,12 +63,10 @@ type FormData = {
     cache_size: number;
     cache_ttl_min: number;
     cache_ttl_max: number;
+    cache_proactive_refresh_time: number;
+    cache_proactive_cooldown_period: number;
+    cache_proactive_cooldown_threshold: number;
     cache_optimistic: boolean;
-    prefetch_enabled: boolean;
-    prefetch_threshold: number;
-    prefetch_threshold_window: number;
-    prefetch_retention_time: number;
-    prefetch_dynamic_retention_max_multiplier: number;
 };
 
 type CacheFormProps = {
@@ -103,12 +93,10 @@ const Form = ({ initialValues, onSubmit }: CacheFormProps) => {
             cache_size: initialValues?.cache_size || 0,
             cache_ttl_min: initialValues?.cache_ttl_min || 0,
             cache_ttl_max: initialValues?.cache_ttl_max || 0,
+            cache_proactive_refresh_time: initialValues?.cache_proactive_refresh_time || 30000,
+            cache_proactive_cooldown_period: initialValues?.cache_proactive_cooldown_period || 1800,
+            cache_proactive_cooldown_threshold: initialValues?.cache_proactive_cooldown_threshold || 3,
             cache_optimistic: initialValues?.cache_optimistic || false,
-            prefetch_enabled: initialValues?.prefetch_enabled || false,
-            prefetch_threshold: initialValues?.prefetch_threshold || 2,
-            prefetch_threshold_window: initialValues?.prefetch_threshold_window || 600,
-            prefetch_retention_time: initialValues?.prefetch_retention_time || 0,
-            prefetch_dynamic_retention_max_multiplier: initialValues?.prefetch_dynamic_retention_max_multiplier || 10,
         },
     });
 
@@ -116,7 +104,6 @@ const Form = ({ initialValues, onSubmit }: CacheFormProps) => {
     const cache_size = watch('cache_size');
     const cache_ttl_min = watch('cache_ttl_min');
     const cache_ttl_max = watch('cache_ttl_max');
-    const prefetch_enabled = watch('prefetch_enabled');
 
     const minExceedsMax = cache_ttl_min > 0 && cache_ttl_max > 0 && cache_ttl_min > cache_ttl_max;
     const cacheSizeZeroWhenEnabled = cache_enabled && cache_size === 0;
@@ -181,58 +168,16 @@ const Form = ({ initialValues, onSubmit }: CacheFormProps) => {
                 {minExceedsMax && <span className="text-danger pl-3 pb-3">{t('ttl_cache_validation')}</span>}
             </div>
 
-            <div className="row">
-                <div className="col-12 col-md-7">
-                    <div className="form__group form__group--settings">
-                        <Controller
-                            name="cache_optimistic"
-                            control={control}
-                            render={({ field }) => (
-                                <Checkbox
-                                    {...field}
-                                    data-testid="dns_cache_optimistic"
-                                    title={t('cache_optimistic')}
-                                    subtitle={t('cache_optimistic_desc')}
-                                    disabled={processingSetConfig}
-                                />
-                            )}
-                        />
-                    </div>
-                </div>
-            </div>
-
             <hr className="my-4" />
 
             <div className="row">
                 <div className="col-12">
-                    <h5 className="mb-3">{t('prefetch_settings')}</h5>
-                    <p className="form__desc mb-3">{t('prefetch_settings_desc')}</p>
-                </div>
-                <div className="col-12 col-md-7">
-                    <div className="form__group form__group--settings">
-                        <Controller
-                            name="prefetch_enabled"
-                            control={control}
-                            render={({ field }) => (
-                                <Checkbox
-                                    {...field}
-                                    data-testid="dns_prefetch_enabled"
-                                    title={t('prefetch_enabled')}
-                                    subtitle={t('prefetch_enabled_desc')}
-                                    disabled={processingSetConfig || !cache_enabled}
-                                />
-                            )}
-                        />
-                        {!cache_enabled && (
-                            <span className="form__message form__message--warning">
-                                {t('prefetch_requires_cache')}
-                            </span>
-                        )}
-                    </div>
+                    <h5 className="mb-3">{t('proactive_refresh_settings')}</h5>
+                    <p className="form__desc mb-3">{t('proactive_refresh_settings_desc')}</p>
                 </div>
 
-                {prefetch_enabled && cache_enabled &&
-                    PREFETCH_INPUTS_FIELDS.map(({ name, title, description, placeholder, min, max }) => (
+                {cache_enabled &&
+                    PROACTIVE_REFRESH_INPUTS_FIELDS.map(({ name, title, description, placeholder, min, max }) => (
                         <div className="col-12" key={name}>
                             <div className="col-12 col-md-7 p-0">
                                 <div className="form__group form__group--settings">
@@ -257,6 +202,35 @@ const Form = ({ initialValues, onSubmit }: CacheFormProps) => {
                             </div>
                         </div>
                     ))}
+                {!cache_enabled && (
+                    <div className="col-12 col-md-7">
+                        <span className="form__message form__message--warning">
+                            {t('proactive_refresh_requires_cache')}
+                        </span>
+                    </div>
+                )}
+            </div>
+
+            <hr className="my-4" />
+
+            <div className="row">
+                <div className="col-12 col-md-7">
+                    <div className="form__group form__group--settings">
+                        <Controller
+                            name="cache_optimistic"
+                            control={control}
+                            render={({ field }) => (
+                                <Checkbox
+                                    {...field}
+                                    data-testid="dns_cache_optimistic"
+                                    title={t('cache_optimistic')}
+                                    subtitle={t('cache_optimistic_desc')}
+                                    disabled={processingSetConfig}
+                                />
+                            )}
+                        />
+                    </div>
+                </div>
             </div>
 
             <button

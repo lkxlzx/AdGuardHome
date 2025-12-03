@@ -199,48 +199,26 @@ type Config struct {
 	// CacheOptimistic defines if optimistic cache mechanism should be used.
 	CacheOptimistic bool `yaml:"cache_optimistic"`
 
-	// Prefetch settings
+	// Proactive Cache Refresh settings
 
-	// PrefetchEnabled enables active cache prefetching.
-	PrefetchEnabled bool `yaml:"prefetch_enabled"`
+	// CacheProactiveRefreshTime is the time before TTL expiration to start proactive refresh (in milliseconds).
+	// Default: 30000 (30 seconds)
+	// Min: 500 (0.5 seconds)
+	// Set to 0 or negative to disable proactive refresh
+	CacheProactiveRefreshTime int `yaml:"cache_proactive_refresh_time"`
 
-	// PrefetchBatchSize is the number of items to process in one batch.
-	// Default: 10
-	PrefetchBatchSize int `yaml:"prefetch_batch_size"`
+	// CacheProactiveCooldownPeriod is the time window for tracking request frequency (in seconds).
+	// Default: 1800 (30 minutes)
+	// Min: 60 (1 minute)
+	// Only requests within this window are counted
+	CacheProactiveCooldownPeriod int `yaml:"cache_proactive_cooldown_period"`
 
-	// PrefetchCheckInterval is the interval between prefetch checks in seconds.
-	// Default: 10
-	PrefetchCheckInterval int `yaml:"prefetch_check_interval"`
-
-	// PrefetchRefreshBefore is the time before expiration to trigger refresh in seconds.
-	// Default: 5
-	PrefetchRefreshBefore int `yaml:"prefetch_refresh_before"`
-
-	// PrefetchMaxConcurrent is the maximum number of concurrent prefetch requests.
-	// Default: 10
-	PrefetchMaxConcurrent int `yaml:"prefetch_max_concurrent"`
-
-	// PrefetchThreshold is the minimum number of requests required to trigger prefetch.
-	// Default: 1
-	PrefetchThreshold int `yaml:"prefetch_threshold"`
-
-	// PrefetchMaxQueueSize is the maximum number of items in the prefetch queue.
-	// Default: 10000
-	PrefetchMaxQueueSize int `yaml:"prefetch_max_queue_size"`
-
-	// PrefetchThresholdWindow is the time window for tracking request counts in seconds.
-	// Default: 0 (no window, simple counter)
-	PrefetchThresholdWindow int `yaml:"prefetch_threshold_window"`
-
-	// PrefetchRetentionTime is the fixed retention time in seconds.
-	// If 0, dynamic retention algorithm is used.
-	// Default: 0
-	PrefetchRetentionTime int `yaml:"prefetch_retention_time"`
-
-	// PrefetchDynamicRetentionMaxMultiplier is the maximum multiplier for dynamic retention.
-	// Only used when PrefetchRetentionTime is 0.
-	// Default: 10
-	PrefetchDynamicRetentionMaxMultiplier int `yaml:"prefetch_dynamic_retention_max_multiplier"`
+	// CacheProactiveCooldownThreshold is the minimum request count to trigger proactive refresh.
+	// Default: 3
+	// -1: Disable cooldown, refresh all domains
+	// 0: Use default value (3)
+	// 1-N: Custom threshold
+	CacheProactiveCooldownThreshold int `yaml:"cache_proactive_cooldown_threshold"`
 
 	// DomainCacheSize is the capacity of the LRU cache for domain routing lookups.
 	// If 0 or negative, the default capacity of 1000 is used.
@@ -507,39 +485,17 @@ func (s *Server) newProxyConfig(ctx context.Context) (conf *proxy.Config, err er
 		return nil, err
 	}
 
-	// Configure prefetch if enabled
-	if srvConf.PrefetchEnabled && srvConf.CacheEnabled {
-		conf.Prefetch = &proxy.PrefetchConfig{
-			Enabled: true,
+	// Configure proactive cache refresh
+	if srvConf.CacheEnabled {
+		// Apply custom settings if provided, otherwise dnsproxy will use defaults
+		if srvConf.CacheProactiveRefreshTime > 0 {
+			conf.CacheProactiveRefreshTime = srvConf.CacheProactiveRefreshTime
 		}
-
-		// Apply custom settings if provided
-		if srvConf.PrefetchBatchSize > 0 {
-			conf.Prefetch.BatchSize = srvConf.PrefetchBatchSize
+		if srvConf.CacheProactiveCooldownPeriod > 0 {
+			conf.CacheProactiveCooldownPeriod = srvConf.CacheProactiveCooldownPeriod
 		}
-		if srvConf.PrefetchCheckInterval > 0 {
-			conf.Prefetch.CheckInterval = time.Duration(srvConf.PrefetchCheckInterval) * time.Second
-		}
-		if srvConf.PrefetchRefreshBefore > 0 {
-			conf.Prefetch.RefreshBefore = time.Duration(srvConf.PrefetchRefreshBefore) * time.Second
-		}
-		if srvConf.PrefetchMaxConcurrent > 0 {
-			conf.Prefetch.MaxConcurrentRequests = srvConf.PrefetchMaxConcurrent
-		}
-		if srvConf.PrefetchThreshold > 0 {
-			conf.Prefetch.Threshold = srvConf.PrefetchThreshold
-		}
-		if srvConf.PrefetchMaxQueueSize > 0 {
-			conf.Prefetch.MaxQueueSize = srvConf.PrefetchMaxQueueSize
-		}
-		if srvConf.PrefetchThresholdWindow > 0 {
-			conf.Prefetch.ThresholdWindow = time.Duration(srvConf.PrefetchThresholdWindow) * time.Second
-		}
-		if srvConf.PrefetchRetentionTime > 0 {
-			conf.Prefetch.RetentionTime = srvConf.PrefetchRetentionTime
-		}
-		if srvConf.PrefetchDynamicRetentionMaxMultiplier > 0 {
-			conf.Prefetch.DynamicRetentionMaxMultiplier = srvConf.PrefetchDynamicRetentionMaxMultiplier
+		if srvConf.CacheProactiveCooldownThreshold != 0 {
+			conf.CacheProactiveCooldownThreshold = srvConf.CacheProactiveCooldownThreshold
 		}
 	}
 

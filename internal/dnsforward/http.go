@@ -100,35 +100,14 @@ type jsonDNSConfig struct {
 	// CacheOptimistic defines if expired entries should be served.
 	CacheOptimistic *bool `json:"cache_optimistic"`
 
-	// PrefetchEnabled enables active cache prefetching.
-	PrefetchEnabled *bool `json:"prefetch_enabled"`
+	// CacheProactiveRefreshTime is the time before TTL expiration to start proactive refresh (in milliseconds).
+	CacheProactiveRefreshTime *int `json:"cache_proactive_refresh_time"`
 
-	// PrefetchBatchSize is the number of items to process in one batch.
-	PrefetchBatchSize *int `json:"prefetch_batch_size"`
+	// CacheProactiveCooldownPeriod is the time window for tracking request frequency (in seconds).
+	CacheProactiveCooldownPeriod *int `json:"cache_proactive_cooldown_period"`
 
-	// PrefetchCheckInterval is the interval between prefetch checks in seconds.
-	PrefetchCheckInterval *int `json:"prefetch_check_interval"`
-
-	// PrefetchRefreshBefore is the time before expiration to trigger refresh in seconds.
-	PrefetchRefreshBefore *int `json:"prefetch_refresh_before"`
-
-	// PrefetchMaxConcurrent is the maximum number of concurrent prefetch requests.
-	PrefetchMaxConcurrent *int `json:"prefetch_max_concurrent"`
-
-	// PrefetchThreshold is the minimum number of requests required to trigger prefetch.
-	PrefetchThreshold *int `json:"prefetch_threshold"`
-
-	// PrefetchMaxQueueSize is the maximum number of items in the prefetch queue.
-	PrefetchMaxQueueSize *int `json:"prefetch_max_queue_size"`
-
-	// PrefetchThresholdWindow is the time window for tracking request counts in seconds.
-	PrefetchThresholdWindow *int `json:"prefetch_threshold_window"`
-
-	// PrefetchRetentionTime is the fixed retention time in seconds.
-	PrefetchRetentionTime *int `json:"prefetch_retention_time"`
-
-	// PrefetchDynamicRetentionMaxMultiplier is the maximum multiplier for dynamic retention.
-	PrefetchDynamicRetentionMaxMultiplier *int `json:"prefetch_dynamic_retention_max_multiplier"`
+	// CacheProactiveCooldownThreshold is the minimum request count to trigger proactive refresh.
+	CacheProactiveCooldownThreshold *int `json:"cache_proactive_cooldown_threshold"`
 
 	// ResolveClients defines if clients IPs should be resolved into hostnames.
 	ResolveClients *bool `json:"resolve_clients"`
@@ -210,16 +189,9 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 	cacheMinTTL := s.conf.CacheMinTTL
 	cacheMaxTTL := s.conf.CacheMaxTTL
 	cacheOptimistic := s.conf.CacheOptimistic
-	prefetchEnabled := s.conf.PrefetchEnabled
-	prefetchBatchSize := s.conf.PrefetchBatchSize
-	prefetchCheckInterval := s.conf.PrefetchCheckInterval
-	prefetchRefreshBefore := s.conf.PrefetchRefreshBefore
-	prefetchMaxConcurrent := s.conf.PrefetchMaxConcurrent
-	prefetchThreshold := s.conf.PrefetchThreshold
-	prefetchMaxQueueSize := s.conf.PrefetchMaxQueueSize
-	prefetchThresholdWindow := s.conf.PrefetchThresholdWindow
-	prefetchRetentionTime := s.conf.PrefetchRetentionTime
-	prefetchDynamicRetentionMaxMultiplier := s.conf.PrefetchDynamicRetentionMaxMultiplier
+	cacheProactiveRefreshTime := s.conf.CacheProactiveRefreshTime
+	cacheProactiveCooldownPeriod := s.conf.CacheProactiveCooldownPeriod
+	cacheProactiveCooldownThreshold := s.conf.CacheProactiveCooldownThreshold
 	resolveClients := s.conf.AddrProcConf.UseRDNS
 	usePrivateRDNS := s.conf.UsePrivateRDNS
 	localPTRUpstreams := stringutil.CloneSliceOrEmpty(s.conf.LocalPTRResolvers)
@@ -277,17 +249,10 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 		CacheSize:                &cacheSize,
 		CacheMinTTL:              &cacheMinTTL,
 		CacheMaxTTL:              &cacheMaxTTL,
-		CacheOptimistic:          &cacheOptimistic,
-		PrefetchEnabled:          &prefetchEnabled,
-		PrefetchBatchSize:        &prefetchBatchSize,
-		PrefetchCheckInterval:    &prefetchCheckInterval,
-		PrefetchRefreshBefore:    &prefetchRefreshBefore,
-		PrefetchMaxConcurrent:                 &prefetchMaxConcurrent,
-		PrefetchThreshold:                     &prefetchThreshold,
-		PrefetchMaxQueueSize:                  &prefetchMaxQueueSize,
-		PrefetchThresholdWindow:               &prefetchThresholdWindow,
-		PrefetchRetentionTime:                 &prefetchRetentionTime,
-		PrefetchDynamicRetentionMaxMultiplier: &prefetchDynamicRetentionMaxMultiplier,
+		CacheOptimistic:                 &cacheOptimistic,
+		CacheProactiveRefreshTime:       &cacheProactiveRefreshTime,
+		CacheProactiveCooldownPeriod:    &cacheProactiveCooldownPeriod,
+		CacheProactiveCooldownThreshold: &cacheProactiveCooldownThreshold,
 		UpstreamMode:                          &upstreamMode,
 		ResolveClients:           &resolveClients,
 		UsePrivateRDNS:           &usePrivateRDNS,
@@ -737,16 +702,9 @@ func (s *Server) setConfigRestartable(dc *jsonDNSConfig) (shouldRestart bool) {
 		setIfNotNil(&s.conf.CacheMinTTL, dc.CacheMinTTL),
 		setIfNotNil(&s.conf.CacheMaxTTL, dc.CacheMaxTTL),
 		setIfNotNil(&s.conf.CacheOptimistic, dc.CacheOptimistic),
-		setIfNotNil(&s.conf.PrefetchEnabled, dc.PrefetchEnabled),
-		setIfNotNil(&s.conf.PrefetchBatchSize, dc.PrefetchBatchSize),
-		setIfNotNil(&s.conf.PrefetchCheckInterval, dc.PrefetchCheckInterval),
-		setIfNotNil(&s.conf.PrefetchRefreshBefore, dc.PrefetchRefreshBefore),
-		setIfNotNil(&s.conf.PrefetchMaxConcurrent, dc.PrefetchMaxConcurrent),
-		setIfNotNil(&s.conf.PrefetchThreshold, dc.PrefetchThreshold),
-		setIfNotNil(&s.conf.PrefetchMaxQueueSize, dc.PrefetchMaxQueueSize),
-		setIfNotNil(&s.conf.PrefetchThresholdWindow, dc.PrefetchThresholdWindow),
-		setIfNotNil(&s.conf.PrefetchRetentionTime, dc.PrefetchRetentionTime),
-		setIfNotNil(&s.conf.PrefetchDynamicRetentionMaxMultiplier, dc.PrefetchDynamicRetentionMaxMultiplier),
+		setIfNotNil(&s.conf.CacheProactiveRefreshTime, dc.CacheProactiveRefreshTime),
+		setIfNotNil(&s.conf.CacheProactiveCooldownPeriod, dc.CacheProactiveCooldownPeriod),
+		setIfNotNil(&s.conf.CacheProactiveCooldownThreshold, dc.CacheProactiveCooldownThreshold),
 		setIfNotNil(&s.conf.AddrProcConf.UseRDNS, dc.ResolveClients),
 		setIfNotNil(&s.conf.UsePrivateRDNS, dc.UsePrivateRDNS),
 		setIfNotNil(&s.conf.RatelimitSubnetLenIPv4, dc.RatelimitSubnetLenIPv4),
@@ -926,53 +884,36 @@ func (s *Server) handleGetCacheMetrics(w http.ResponseWriter, r *http.Request) {
 	aghhttp.WriteJSONResponseOK(ctx, s.logger, w, r, resp)
 }
 
-// prefetchMetricsJSON is the response for the GET /control/prefetch_metrics endpoint.
-type prefetchMetricsJSON struct {
-	PrefetchEnabled     bool    `json:"prefetch_enabled"`
-	PrefetchStatus      string  `json:"prefetch_status"`
-	PrefetchHotDomains  int     `json:"prefetch_hot_domains"`
-	PrefetchCompleted   int64   `json:"prefetch_completed"`
-	PrefetchFailed      int64   `json:"prefetch_failed"`
-	PrefetchSuccessRate float64 `json:"prefetch_success_rate"`
-	PrefetchQueueSize   int     `json:"prefetch_queue_size"`
-	LastPrefetchTime    string  `json:"last_prefetch_time"`
+// proactiveRefreshMetricsJSON is the response for the GET /control/prefetch_metrics endpoint.
+type proactiveRefreshMetricsJSON struct {
+	ProactiveRefreshEnabled bool   `json:"proactive_refresh_enabled"`
+	RefreshTime             int    `json:"refresh_time"`
+	CooldownPeriod          int    `json:"cooldown_period"`
+	CooldownThreshold       int    `json:"cooldown_threshold"`
+	Status                  string `json:"status"`
 }
 
 // handleGetPrefetchMetrics handles requests to the GET /control/prefetch_metrics endpoint.
+// Note: This endpoint is kept for backward compatibility but now returns proactive refresh config.
 func (s *Server) handleGetPrefetchMetrics(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	s.serverLock.RLock()
 	defer s.serverLock.RUnlock()
 
-	resp := &prefetchMetricsJSON{
-		PrefetchEnabled: s.conf.PrefetchEnabled,
-		PrefetchStatus:  "idle",
+	// Proactive refresh is enabled when cache is enabled and refresh time is positive
+	enabled := s.conf.CacheEnabled && s.conf.CacheProactiveRefreshTime > 0
+
+	resp := &proactiveRefreshMetricsJSON{
+		ProactiveRefreshEnabled: enabled,
+		RefreshTime:             s.conf.CacheProactiveRefreshTime,
+		CooldownPeriod:          s.conf.CacheProactiveCooldownPeriod,
+		CooldownThreshold:       s.conf.CacheProactiveCooldownThreshold,
+		Status:                  "active",
 	}
 
-	// Get prefetch statistics if enabled and proxy is running
-	if s.conf.PrefetchEnabled && s.dnsProxy != nil {
-		stats := s.dnsProxy.GetPrefetchStats()
-		if stats != nil {
-			resp.PrefetchHotDomains = stats.UniqueDomains
-			resp.PrefetchCompleted = stats.TotalRefreshed
-			resp.PrefetchFailed = stats.TotalFailed
-			resp.PrefetchQueueSize = stats.QueueLen
-			resp.LastPrefetchTime = stats.LastRefreshTime
-
-			// Calculate success rate
-			total := stats.TotalRefreshed + stats.TotalFailed
-			if total > 0 {
-				resp.PrefetchSuccessRate = float64(stats.TotalRefreshed) / float64(total) * 100
-			} else {
-				resp.PrefetchSuccessRate = 100.0
-			}
-
-			// Determine status based on activity
-			if stats.ScheduledCount > 0 || stats.QueueLen > 0 {
-				resp.PrefetchStatus = "active"
-			}
-		}
+	if !enabled {
+		resp.Status = "disabled"
 	}
 
 	aghhttp.WriteJSONResponseOK(ctx, s.logger, w, r, resp)
