@@ -285,7 +285,9 @@ func (d *DNSFilter) filterAddDNSRouting(f FilterYAML) (err error) {
 		return errFilterExists
 	}
 
-	f.ID = d.idGen.next()
+	if f.ID == 0 {
+		f.ID = d.idGen.next()
+	}
 	f.dnsRouting = true
 	d.conf.DNSRoutingFilters = append(d.conf.DNSRoutingFilters, f)
 
