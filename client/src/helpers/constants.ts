@@ -152,6 +152,7 @@ export const SETTINGS_URLS = {
 export const FILTERS_URLS = {
     dns_blocklists: '/filters',
     dns_allowlists: '/dns_allowlists',
+    dns_routing: '/dns_routing',
     dns_rewrites: '/dns_rewrites',
     custom_rules: '/custom_rules',
     blocked_services: '/blocked_services',

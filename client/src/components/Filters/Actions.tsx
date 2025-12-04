@@ -6,12 +6,13 @@ interface ActionsProps {
     handleRefresh: (...args: unknown[]) => unknown;
     processingRefreshFilters: boolean;
     whitelist?: boolean;
+    isRoutingRule?: boolean;
 }
 
-const Actions = ({ handleAdd, handleRefresh, processingRefreshFilters, whitelist }: ActionsProps) => (
+const Actions = ({ handleAdd, handleRefresh, processingRefreshFilters, whitelist, isRoutingRule }: ActionsProps) => (
     <div className="card-actions">
         <button className="btn btn-success btn-standard mr-2 btn-large mb-2" type="submit" onClick={handleAdd}>
-            {whitelist ? <Trans>add_allowlist</Trans> : <Trans>add_blocklist</Trans>}
+            {isRoutingRule ? <Trans>add_routing_rule</Trans> : whitelist ? <Trans>add_allowlist</Trans> : <Trans>add_blocklist</Trans>}
         </button>
 
         <button

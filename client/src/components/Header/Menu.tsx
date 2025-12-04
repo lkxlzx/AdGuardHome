@@ -69,6 +69,10 @@ const FILTERS_ITEMS = [
         text: 'dns_allowlists',
     },
     {
+        route: FILTERS_URLS.dns_routing,
+        text: 'dns_routing',
+    },
+    {
         route: FILTERS_URLS.dns_rewrites,
         text: 'dns_rewrites',
     },

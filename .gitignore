@@ -34,7 +34,8 @@
 /test-reports/
 AdGuardHome
 AdGuardHome.exe
-AdGuardHome.yaml*
+AdGuardHome_*.exe
+AdGuardHome*.yaml
 coverage.txt
 node_modules/
 tmp/
@@ -43,5 +44,12 @@ tmp/
 
 # Exclude backup and test directories
 AdGuardHome-master-v5/
-.kiro/
-.vscode/
+
+# Build scripts
+build-*.ps1
+start-*.ps1
+test-*.ps1
+
+# Temporary files
+COMMIT_MESSAGE.txt
+*.backup

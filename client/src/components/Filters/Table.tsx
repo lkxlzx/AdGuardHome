@@ -19,8 +19,11 @@ interface TableProps {
     toggleFilteringModal: (...args: unknown[]) => unknown;
     handleDelete: (...args: unknown[]) => unknown;
     toggleFilter: (...args: unknown[]) => unknown;
+    handleRefreshFilter?: (...args: unknown[]) => unknown;
     t: (...args: unknown[]) => string;
     whitelist?: boolean;
+    upstreamGroups?: any[];
+    showUpstreamGroup?: boolean;
 }
 
 class Table extends Component<TableProps> {

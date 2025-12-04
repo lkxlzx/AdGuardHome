@@ -9,7 +9,7 @@ import {
     selectGroupById,
     selectGroupsCount,
 } from './upstreamGroups';
-import { RootState } from '../reducers';
+import { RootState } from '../initialState';
 import { UpstreamGroup } from '../types/upstreamGroups';
 
 describe('upstreamGroups selectors', () => {

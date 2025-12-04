@@ -334,6 +334,8 @@ export type DnsConfigData = {
     cache_ttl_max?: number;
     cache_ttl_min?: number;
     cache_optimistic?: boolean;
+    upstream_groups?: any[];
+    custom_domain_rules?: any[];
 };
 
 export type FilteringData = {
@@ -355,6 +357,19 @@ export type FilteringData = {
     modalType: string;
     modalFilterUrl: string;
     check: any;
+};
+
+export type DnsRoutingData = {
+    isModalOpen: boolean;
+    modalType: string;
+    modalFilterUrl: string;
+    processingFilters: boolean;
+    processingAddFilter: boolean;
+    processingEditFilter: boolean;
+    processingRemoveFilter: boolean;
+    processingToggleFilter: boolean;
+    processingRefreshFilters: boolean;
+    filters: any[];
 };
 
 export type QueryLogsData = {
@@ -392,6 +407,7 @@ export type RootState = {
     dnsConfig?: DnsConfigData;
     encryption?: EncryptionData;
     filtering?: FilteringData;
+    dnsRouting?: DnsRoutingData;
     queryLogs?: QueryLogsData;
     rewrites?: RewritesData;
     services?: ServicesData;

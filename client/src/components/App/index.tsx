@@ -38,6 +38,7 @@ import Dhcp from '../Settings/Dhcp';
 import Clients from '../../containers/Clients';
 import DnsBlocklist from '../../containers/DnsBlocklist';
 import DnsAllowlist from '../../containers/DnsAllowlist';
+import DnsRouting from '../../containers/DnsRouting';
 import DnsRewrites from '../../containers/DnsRewrites';
 import CustomRules from '../../containers/CustomRules';
 
@@ -88,6 +89,10 @@ const ROUTES = [
     {
         path: FILTERS_URLS.dns_allowlists,
         component: DnsAllowlist,
+    },
+    {
+        path: FILTERS_URLS.dns_routing,
+        component: DnsRouting,
     },
     {
         path: FILTERS_URLS.dns_rewrites,

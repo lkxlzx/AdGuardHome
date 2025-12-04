@@ -63,6 +63,7 @@ interface ModalProps {
     currentFilterData: object;
     t: (...args: unknown[]) => string;
     whitelist?: boolean;
+    isRoutingRule?: boolean;
     filters: unknown[];
     filtersCatalog?: any;
 }
