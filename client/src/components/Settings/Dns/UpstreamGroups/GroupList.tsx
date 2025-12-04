@@ -20,6 +20,11 @@ import { UpstreamGroup } from '../../../../types/upstreamGroups';
 import { RootState } from '../../../../initialState';
 import { TABLES_MIN_ROWS } from '../../../../helpers/constants';
 import { LocalStorageHelper, LOCAL_STORAGE_KEYS } from '../../../../helpers/localStorageHelper';
+import {
+    selectProcessingUpdate,
+    selectProcessingDelete,
+    selectProcessingTest,
+} from '../../../../selectors/upstreamGroups';
 
 interface GroupListProps {
     groups: UpstreamGroup[];
@@ -27,21 +32,22 @@ interface GroupListProps {
     onAddGroup: () => void;
 }
 
-const GroupList: React.FC<GroupListProps> = ({ groups, processing, onAddGroup }) => {
+const GroupList: React.FC<GroupListProps> = React.memo(({ groups, processing, onAddGroup }) => {
     const { t } = useTranslation();
     const dispatch = useDispatch();
 
-    const { processingUpdate, processingDelete, processingTest } = useSelector(
-        (state: RootState) => state.upstreamGroups!,
-    );
+    // Use memoized selectors for better performance
+    const processingUpdate = useSelector(selectProcessingUpdate);
+    const processingDelete = useSelector(selectProcessingDelete);
+    const processingTest = useSelector(selectProcessingTest);
 
-    const cellWrap = ({ value }: any) => (
+    const cellWrap = React.useCallback(({ value }: any) => (
         <div className="logs__row o-hidden">
             <span className="logs__text" title={value}>
                 {value}
             </span>
         </div>
-    );
+    ), []);
 
     const renderCheckbox = ({ original }: any) => {
         const handleToggle = () => {
@@ -280,6 +286,8 @@ const GroupList: React.FC<GroupListProps> = ({ groups, processing, onAddGroup })
             </div>
         </>
     );
-};
+});
+
+GroupList.displayName = 'GroupList';
 
 export default GroupList;

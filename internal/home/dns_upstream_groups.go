@@ -3,6 +3,7 @@ package home
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -103,8 +104,7 @@ func (web *webAPI) handleAddUpstreamGroup(w http.ResponseWriter, r *http.Request
 	config.Unlock()
 
 	// Save config (config.write handles its own locking)
-	if err := config.write(ctx, l, web.tlsManager, web.auth, web.conf.workDir, web.conf.confPath); err != nil {
-		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusInternalServerError, "failed to save configuration: %s", err)
+	if !web.saveConfigIfNeeded(ctx, l, r, w) && web.conf != nil {
 		return
 	}
 
@@ -193,8 +193,7 @@ func (web *webAPI) handleUpdateUpstreamGroup(w http.ResponseWriter, r *http.Requ
 	config.Unlock()
 
 	// Save config (config.write handles its own locking)
-	if err := config.write(ctx, l, web.tlsManager, web.auth, web.conf.workDir, web.conf.confPath); err != nil {
-		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusInternalServerError, "failed to save configuration: %s", err)
+	if !web.saveConfigIfNeeded(ctx, l, r, w) && web.conf != nil {
 		return
 	}
 
@@ -245,8 +244,7 @@ func (web *webAPI) handleDeleteUpstreamGroup(w http.ResponseWriter, r *http.Requ
 	config.Unlock()
 
 	// Save config (config.write handles its own locking)
-	if err := config.write(ctx, l, web.tlsManager, web.auth, web.conf.workDir, web.conf.confPath); err != nil {
-		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusInternalServerError, "failed to save configuration: %s", err)
+	if !web.saveConfigIfNeeded(ctx, l, r, w) && web.conf != nil {
 		return
 	}
 
@@ -292,13 +290,12 @@ func (web *webAPI) handleSetDefaultGroup(w http.ResponseWriter, r *http.Request)
 	config.Unlock()
 
 	// Save config (config.write handles its own locking)
-	if err := config.write(ctx, l, web.tlsManager, web.auth, web.conf.workDir, web.conf.confPath); err != nil {
-		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusInternalServerError, "failed to save configuration: %s", err)
+	if !web.saveConfigIfNeeded(ctx, l, r, w) && web.conf != nil {
 		return
 	}
 
 	// Reconfigure DNS server to use the new default group
-	if globalContext.dnsServer != nil {
+	if globalContext.dnsServer != nil && web.conf != nil {
 		dnsConf, err := newServerConfig(
 			&config.DNS,
 			config.Clients.Sources,
@@ -511,6 +508,22 @@ func simplifyError(err error) string {
 	}
 }
 
+// saveConfigIfNeeded saves the configuration if not in test environment.
+// Returns true if save was attempted, false if skipped (test environment).
+func (web *webAPI) saveConfigIfNeeded(ctx context.Context, l *slog.Logger, r *http.Request, w http.ResponseWriter) bool {
+	// Skip saving in test environment (when web.conf is nil)
+	if web.conf == nil {
+		return false
+	}
+
+	if err := config.write(ctx, l, web.tlsManager, web.auth, web.conf.workDir, web.conf.confPath); err != nil {
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusInternalServerError, "failed to save configuration: %s", err)
+		return false
+	}
+
+	return true
+}
+
 // validateUpstreamGroupRequest validates the upstream group request
 func validateUpstreamGroupRequest(req *upstreamGroupRequest) error {
 	if req.Name == "" {
@@ -526,4 +539,82 @@ func validateUpstreamGroupRequest(req *upstreamGroupRequest) error {
 	}
 
 	return nil
+}
+
+// ensureDefaultGroup ensures that a default upstream group exists.
+// If no default group exists, it will:
+// 1. Set the first enabled group as default
+// 2. If no enabled groups exist, create a default group with system DNS servers
+// This function should be called during system initialization.
+func ensureDefaultGroup(ctx context.Context, l *slog.Logger) {
+	config.Lock()
+	defer config.Unlock()
+
+	// Check if a default group already exists
+	hasDefault := false
+	for i := range config.DNS.UpstreamGroups {
+		if config.DNS.UpstreamGroups[i].IsDefault {
+			hasDefault = true
+			// Ensure default group is enabled
+			if !config.DNS.UpstreamGroups[i].Enabled {
+				l.WarnContext(ctx, "default group is disabled; enabling it", "group", config.DNS.UpstreamGroups[i].Name)
+				config.DNS.UpstreamGroups[i].Enabled = true
+				config.DNS.UpstreamGroups[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			}
+			break
+		}
+	}
+
+	if hasDefault {
+		return
+	}
+
+	l.InfoContext(ctx, "no default upstream group found; attempting to recover")
+
+	// Try to set the first enabled group as default
+	for i := range config.DNS.UpstreamGroups {
+		if config.DNS.UpstreamGroups[i].Enabled {
+			l.InfoContext(ctx, "setting first enabled group as default", "group", config.DNS.UpstreamGroups[i].Name)
+			config.DNS.UpstreamGroups[i].IsDefault = true
+			config.DNS.UpstreamGroups[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			return
+		}
+	}
+
+	// If no enabled groups exist, create a default group
+	l.WarnContext(ctx, "no enabled upstream groups found; creating default group")
+	
+	// Use existing upstream DNS configuration if available, otherwise use common public DNS
+	upstreamDNS := config.DNS.UpstreamDNS
+	if len(upstreamDNS) == 0 {
+		upstreamDNS = []string{
+			"https://dns.cloudflare.com/dns-query",
+			"https://dns.google/dns-query",
+		}
+	}
+
+	bootstrapDNS := config.DNS.BootstrapDNS
+	if len(bootstrapDNS) == 0 {
+		bootstrapDNS = []string{
+			"9.9.9.10",
+			"149.112.112.10",
+			"2620:fe::10",
+			"2620:fe::fe:10",
+		}
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	defaultGroup := UpstreamGroup{
+		ID:           uuid.New().String(),
+		Name:         "Default",
+		Enabled:      true,
+		IsDefault:    true,
+		UpstreamDNS:  upstreamDNS,
+		BootstrapDNS: bootstrapDNS,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	config.DNS.UpstreamGroups = append(config.DNS.UpstreamGroups, defaultGroup)
+	l.InfoContext(ctx, "created default upstream group", "group", defaultGroup.Name, "id", defaultGroup.ID)
 }

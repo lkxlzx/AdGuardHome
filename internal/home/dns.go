@@ -52,6 +52,9 @@ func initDNS(
 	statsDir string,
 	querylogDir string,
 ) (err error) {
+	// Ensure a default upstream group exists before initializing DNS server
+	ensureDefaultGroup(ctx, baseLogger.With(slogutil.KeyPrefix, "upstream_groups"))
+
 	anonymizer := config.anonymizer()
 
 	statsConf := stats.Config{
