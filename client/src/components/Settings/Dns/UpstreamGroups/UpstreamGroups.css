@@ -1,0 +1,53 @@
+/* 上游分组样式 - 遵循 AdGuard Home 原有风格 */
+
+/* 默认标签样式 */
+.badge-success {
+    background-color: #67b279;
+    color: #ffffff;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    margin-left: 8px;
+    display: inline-block;
+    font-weight: 600;
+}
+
+/* 对话框样式调整 */
+.upstream-group-modal .modal-dialog {
+    max-width: 600px;
+}
+
+.upstream-group-modal .form__desc--top {
+    margin-top: 0.5rem;
+    color: #6c757d;
+}
+
+/* 文本域样式 */
+.upstream-group-modal .form-control--textarea {
+    font-family: monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.upstream-group-modal .form-control--textarea:focus {
+    border-color: #5bc0de;
+    box-shadow: 0 0 0 0.2rem rgba(91, 192, 222, 0.25);
+}
+
+/* 测试结果样式 */
+.test-results-alert {
+    margin-top: 1rem;
+}
+
+.test-results-alert ul {
+    list-style: none;
+    padding-left: 0;
+    margin-bottom: 0;
+}
+
+.test-results-alert li {
+    padding: 4px 0;
+    font-family: monospace;
+    font-size: 13px;
+}

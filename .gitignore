@@ -40,3 +40,8 @@ node_modules/
 tmp/
 
 !/build/gitkeep
+
+# Exclude backup and test directories
+AdGuardHome-master-v5/
+.kiro/
+.vscode/

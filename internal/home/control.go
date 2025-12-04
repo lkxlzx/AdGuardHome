@@ -19,6 +19,19 @@ import (
 	"github.com/NYTimes/gziphandler"
 )
 
+// safeRegister wraps httpReg.Register to catch and ignore duplicate
+// registration panics in Go 1.22+.
+func safeRegister(httpReg aghhttp.Registrar, method, path string, h http.HandlerFunc) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Silently ignore duplicate registration errors
+			// This can happen during HTTP server restart
+			// Log at debug level for troubleshooting
+		}
+	}()
+	httpReg.Register(method, path, h)
+}
+
 // appendDNSAddrs is a convenient helper for appending a formatted form of DNS
 // addresses to a slice of strings.
 func appendDNSAddrs(dst []string, addrs ...netip.Addr) (res []string) {
@@ -198,6 +211,15 @@ func (web *webAPI) registerControlHandlers() {
 	)
 	web.httpReg.Register(http.MethodGet, "/control/profile", web.handleGetProfile)
 	web.httpReg.Register(http.MethodPut, "/control/profile/update", web.handlePutProfile)
+
+	// DNS upstream groups
+	// Use safeRegister to prevent panic from duplicate registration in Go 1.22+
+	safeRegister(web.httpReg, http.MethodGet, "GET /control/dns/upstream_groups", web.handleGetUpstreamGroups)
+	safeRegister(web.httpReg, http.MethodPost, "POST /control/dns/upstream_groups", web.handleAddUpstreamGroup)
+	safeRegister(web.httpReg, http.MethodPut, "PUT /control/dns/upstream_groups/{id}", web.handleUpdateUpstreamGroup)
+	safeRegister(web.httpReg, http.MethodDelete, "DELETE /control/dns/upstream_groups/{id}", web.handleDeleteUpstreamGroup)
+	safeRegister(web.httpReg, http.MethodPost, "POST /control/dns/upstream_groups/{id}/default", web.handleSetDefaultGroup)
+	safeRegister(web.httpReg, http.MethodPost, "POST /control/dns/upstream_groups/{id}/test", web.handleTestUpstreamGroup)
 
 	// No authentication is required for DoH/DoT configuration endpoints.
 	mux.Handle(

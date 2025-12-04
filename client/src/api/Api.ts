@@ -689,6 +689,59 @@ class Api {
         return this.makeRequest(path, method, config);
     }
 
+    // Upstream Groups
+    GET_UPSTREAM_GROUPS = { path: 'dns/upstream_groups', method: 'GET' };
+
+    ADD_UPSTREAM_GROUP = { path: 'dns/upstream_groups', method: 'POST' };
+
+    UPDATE_UPSTREAM_GROUP = { path: 'dns/upstream_groups', method: 'PUT' };
+
+    DELETE_UPSTREAM_GROUP = { path: 'dns/upstream_groups', method: 'DELETE' };
+
+    SET_DEFAULT_UPSTREAM_GROUP = { path: 'dns/upstream_groups', method: 'POST' };
+
+    TEST_UPSTREAM_GROUP = { path: 'dns/upstream_groups', method: 'POST' };
+
+    getUpstreamGroups() {
+        const { path, method } = this.GET_UPSTREAM_GROUPS;
+        return this.makeRequest(path, method);
+    }
+
+    addUpstreamGroup(data: any) {
+        const { path, method } = this.ADD_UPSTREAM_GROUP;
+        const config = {
+            data,
+        };
+        return this.makeRequest(path, method, config);
+    }
+
+    updateUpstreamGroup(id: string, data: any) {
+        const { method } = this.UPDATE_UPSTREAM_GROUP;
+        const path = `dns/upstream_groups/${id}`;
+        const config = {
+            data,
+        };
+        return this.makeRequest(path, method, config);
+    }
+
+    deleteUpstreamGroup(id: string) {
+        const { method } = this.DELETE_UPSTREAM_GROUP;
+        const path = `dns/upstream_groups/${id}`;
+        return this.makeRequest(path, method);
+    }
+
+    setDefaultUpstreamGroup(id: string) {
+        const { method } = this.SET_DEFAULT_UPSTREAM_GROUP;
+        const path = `dns/upstream_groups/${id}/default`;
+        return this.makeRequest(path, method);
+    }
+
+    testUpstreamGroup(id: string) {
+        const { method } = this.TEST_UPSTREAM_GROUP;
+        const path = `dns/upstream_groups/${id}/test`;
+        return this.makeRequest(path, method);
+    }
+
     SET_PROTECTION = { path: 'protection', method: 'POST' };
 
     setProtection(data: any) {

@@ -14,6 +14,7 @@ import filtering from './filtering';
 import settings from './settings';
 import dashboard from './dashboard';
 import dhcp from './dhcp';
+import upstreamGroups from './upstreamGroups';
 
 export default combineReducers({
     settings,
@@ -29,5 +30,6 @@ export default combineReducers({
     services,
     stats,
     dnsConfig,
+    upstreamGroups,
     loadingBar: loadingBarReducer,
 });

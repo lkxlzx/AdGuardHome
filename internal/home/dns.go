@@ -249,6 +249,21 @@ func newServerConfig(
 	hosts := aghalg.CoalesceSlice(dnsConf.BindHosts, []netip.Addr{netutil.IPv4Localhost()})
 
 	fwdConf := dnsConf.Config
+	
+	// Use default upstream group if configured
+	for _, group := range config.DNS.UpstreamGroups {
+		if group.IsDefault && group.Enabled {
+			fwdConf.UpstreamDNS = group.UpstreamDNS
+			if len(group.FallbackDNS) > 0 {
+				fwdConf.FallbackDNS = group.FallbackDNS
+			}
+			if len(group.BootstrapDNS) > 0 {
+				fwdConf.BootstrapDNS = group.BootstrapDNS
+			}
+			break
+		}
+	}
+	
 	fwdConf.ClientsContainer = clientsContainer
 
 	intTLSConf, err := newDNSTLSConfig(tlsConf, hosts)

@@ -8,6 +8,7 @@ import {
 } from './helpers/constants';
 import { DEFAULT_BLOCKING_IPV4, DEFAULT_BLOCKING_IPV6 } from './reducers/dnsConfig';
 import { Filter } from './helpers/helpers';
+import { UpstreamGroupsState } from './types/upstreamGroups';
 
 export type InstallInterface = {
     flags: string;
@@ -397,6 +398,7 @@ export type RootState = {
     settings?: SettingsData;
     stats?: StatsData;
     install?: InstallData;
+    upstreamGroups?: UpstreamGroupsState;
     toasts: { notices: any[] };
     loadingBar: any;
 };
@@ -624,6 +626,18 @@ export const initialState: RootState = {
         enabled: true,
         topUpstreamsAvgTime: [],
         topUpstreamsResponses: [],
+    },
+    upstreamGroups: {
+        groups: [],
+        processing: false,
+        processingAdd: false,
+        processingUpdate: false,
+        processingDelete: false,
+        processingTest: false,
+        isModalOpen: false,
+        modalType: 'add',
+        currentGroup: undefined,
+        testResult: undefined,
     },
     toasts: { notices: [] },
     loadingBar: {},

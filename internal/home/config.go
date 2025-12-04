@@ -269,6 +269,9 @@ type dnsConfig struct {
 
 	// PendingRequests configures duplicate requests policy.
 	PendingRequests *pendingRequests `yaml:"pending_requests"`
+
+	// UpstreamGroups is the list of DNS upstream groups.
+	UpstreamGroups []UpstreamGroup `yaml:"upstream_groups"`
 }
 
 // pendingRequests is a block with pending requests configuration.
@@ -276,6 +279,19 @@ type pendingRequests struct {
 	// Enabled controls if duplicate requests should be sent to the upstreams
 	// along with the original one.
 	Enabled bool `yaml:"enabled"`
+}
+
+// UpstreamGroup represents a group of DNS upstream servers.
+type UpstreamGroup struct {
+	ID           string    `yaml:"id" json:"id"`
+	Name         string    `yaml:"name" json:"name"`
+	Enabled      bool      `yaml:"enabled" json:"enabled"`
+	IsDefault    bool      `yaml:"is_default" json:"is_default"`
+	UpstreamDNS  []string  `yaml:"upstream_dns" json:"upstream_dns"`
+	FallbackDNS  []string  `yaml:"fallback_dns,omitempty" json:"fallback_dns,omitempty"`
+	BootstrapDNS []string  `yaml:"bootstrap_dns,omitempty" json:"bootstrap_dns,omitempty"`
+	CreatedAt    string    `yaml:"created_at" json:"created_at"`
+	UpdatedAt    string    `yaml:"updated_at" json:"updated_at"`
 }
 
 // tlsConfigSettings is the TLS configuration for DNS-over-TLS, DNS-over-QUIC,

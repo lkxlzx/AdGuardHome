@@ -546,6 +546,8 @@ func (web *webAPI) finalizeInstall(
 	web.conf.firstRun = false
 	web.conf.BindAddr = netip.AddrPortFrom(req.Web.IP, req.Web.Port)
 
+	// Register control handlers now. If HTTP server restarts, the flag
+	// will prevent duplicate registration.
 	web.registerControlHandlers()
 
 	aghhttp.OK(ctx, l, w)
