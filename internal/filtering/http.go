@@ -60,6 +60,12 @@ type filterAddJSON struct {
 	Name      string `json:"name"`
 	URL       string `json:"url"`
 	Whitelist bool   `json:"whitelist"`
+	
+	// DNS Routing fields
+	DnsRouting     bool   `json:"dns_routing"`      // Indicates this is a DNS routing filter
+	UpstreamGroup  string `json:"upstream_group"`   // Target upstream group ID
+	UpdateInterval int    `json:"update_interval"`  // Update interval in minutes
+	Priority       int    `json:"priority"`         // Priority for matching
 }
 
 func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request) {
@@ -79,6 +85,19 @@ func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request
 			err,
 		)
 
+		return
+	}
+
+	// DNS routing filters should NOT be added through the filtering system
+	if fj.DnsRouting {
+		aghhttp.ErrorAndLog(
+			ctx,
+			l,
+			r,
+			w,
+			http.StatusBadRequest,
+			"DNS routing filters must be added through /control/dns_routing/add endpoint",
+		)
 		return
 	}
 
@@ -108,10 +127,14 @@ func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request
 
 	// Set necessary properties
 	filt := FilterYAML{
-		Enabled: true,
-		URL:     fj.URL,
-		Name:    fj.Name,
-		white:   fj.Whitelist,
+		Enabled:        true,
+		URL:            fj.URL,
+		Name:           fj.Name,
+		white:          fj.Whitelist,
+		DnsRouting:     fj.DnsRouting,
+		UpstreamGroup:  fj.UpstreamGroup,
+		UpdateInterval: fj.UpdateInterval,
+		Priority:       fj.Priority,
 		Filter: Filter{
 			ID: d.idGen.next(),
 		},
@@ -185,8 +208,9 @@ func (d *DNSFilter) handleFilteringAddURL(w http.ResponseWriter, r *http.Request
 
 func (d *DNSFilter) handleFilteringRemoveURL(w http.ResponseWriter, r *http.Request) {
 	type request struct {
-		URL       string `json:"url"`
-		Whitelist bool   `json:"whitelist"`
+		URL        string `json:"url"`
+		Whitelist  bool   `json:"whitelist"`
+		DnsRouting bool   `json:"dns_routing"` // Support DNS routing filter deletion
 	}
 
 	ctx := r.Context()
@@ -207,6 +231,19 @@ func (d *DNSFilter) handleFilteringRemoveURL(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// DNS routing filters should NOT be removed through the filtering system
+	if req.DnsRouting {
+		aghhttp.ErrorAndLog(
+			ctx,
+			d.logger,
+			r,
+			w,
+			http.StatusBadRequest,
+			"DNS routing filters must be removed through /control/dns_routing/delete endpoint",
+		)
+		return
+	}
+
 	var deleted FilterYAML
 	func() {
 		d.conf.filtersMu.Lock()
@@ -218,7 +255,8 @@ func (d *DNSFilter) handleFilteringRemoveURL(w http.ResponseWriter, r *http.Requ
 		}
 
 		delIdx := slices.IndexFunc(*filters, func(flt FilterYAML) bool {
-			return flt.URL == req.URL
+			// Skip DNS routing filters
+			return flt.URL == req.URL && !flt.DnsRouting
 		})
 		if delIdx == -1 {
 			d.logger.ErrorContext(
@@ -278,12 +316,19 @@ type filterURLReqData struct {
 	Name    string `json:"name"`
 	URL     string `json:"url"`
 	Enabled bool   `json:"enabled"`
+	
+	// DNS Routing fields
+	DnsRouting     bool   `json:"dns_routing"`
+	UpstreamGroup  string `json:"upstream_group"`
+	UpdateInterval int    `json:"update_interval"`
+	Priority       int    `json:"priority"`
 }
 
 type filterURLReq struct {
-	Data      *filterURLReqData `json:"data"`
-	URL       string            `json:"url"`
-	Whitelist bool              `json:"whitelist"`
+	Data       *filterURLReqData `json:"data"`
+	URL        string            `json:"url"`
+	Whitelist  bool              `json:"whitelist"`
+	DnsRouting bool              `json:"dns_routing"` // Support DNS routing filter update
 }
 
 func (d *DNSFilter) handleFilteringSetURL(w http.ResponseWriter, r *http.Request) {
@@ -312,6 +357,19 @@ func (d *DNSFilter) handleFilteringSetURL(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// DNS routing filters should NOT be updated through the filtering system
+	if fj.DnsRouting || fj.Data.DnsRouting {
+		aghhttp.ErrorAndLog(
+			ctx,
+			l,
+			r,
+			w,
+			http.StatusBadRequest,
+			"DNS routing filters must be updated through /control/dns_routing/update endpoint",
+		)
+		return
+	}
+
 	err = d.validateFilterURL(fj.Data.URL)
 	if err != nil {
 		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "invalid url: %s", err)
@@ -320,9 +378,13 @@ func (d *DNSFilter) handleFilteringSetURL(w http.ResponseWriter, r *http.Request
 	}
 
 	filt := FilterYAML{
-		Enabled: fj.Data.Enabled,
-		Name:    fj.Data.Name,
-		URL:     fj.Data.URL,
+		Enabled:        fj.Data.Enabled,
+		Name:           fj.Data.Name,
+		URL:            fj.Data.URL,
+		DnsRouting:     fj.Data.DnsRouting,
+		UpstreamGroup:  fj.Data.UpstreamGroup,
+		UpdateInterval: fj.Data.UpdateInterval,
+		Priority:       fj.Data.Priority,
 	}
 
 	restart, err := d.filterSetProperties(fj.URL, filt, fj.Whitelist)
@@ -365,7 +427,9 @@ func (d *DNSFilter) handleFilteringSetRules(w http.ResponseWriter, r *http.Reque
 
 func (d *DNSFilter) handleFilteringRefresh(w http.ResponseWriter, r *http.Request) {
 	type Req struct {
-		White bool `json:"whitelist"`
+		White      bool   `json:"whitelist"`
+		DnsRouting bool   `json:"dns_routing"` // Support DNS routing filter refresh
+		URL        string `json:"url"`         // Optional: refresh specific filter by URL
 	}
 	var err error
 
@@ -384,7 +448,29 @@ func (d *DNSFilter) handleFilteringRefresh(w http.ResponseWriter, r *http.Reques
 	resp := struct {
 		Updated int `json:"updated"`
 	}{}
-	resp.Updated, _, ok = d.tryRefreshFilters(!req.White, req.White, true)
+	
+	// DNS routing filters should NOT be refreshed through the filtering system
+	// They are managed by the DNS routing file manager
+	if req.DnsRouting {
+		aghhttp.ErrorAndLog(
+			ctx,
+			l,
+			r,
+			w,
+			http.StatusBadRequest,
+			"DNS routing filters must be refreshed through /control/dns_routing/refresh endpoint",
+		)
+		return
+	}
+	
+	// If URL is specified, refresh only that filter
+	if req.URL != "" {
+		resp.Updated, _, ok = d.tryRefreshSingleFilter(req.URL, req.DnsRouting)
+	} else {
+		// Refresh all filters of the specified type
+		resp.Updated, _, ok = d.tryRefreshFilters(!req.White && !req.DnsRouting, req.White, true)
+	}
+	
 	if !ok {
 		aghhttp.ErrorAndLog(
 			ctx,
@@ -410,14 +496,21 @@ type filterJSON struct {
 
 	RulesCount uint64 `json:"rules_count"`
 	Enabled    bool   `json:"enabled"`
+	
+	// DNS Routing fields
+	DnsRouting     bool   `json:"dns_routing,omitempty"`
+	UpstreamGroup  string `json:"upstream_group,omitempty"`
+	UpdateInterval int    `json:"update_interval,omitempty"`
+	Priority       int    `json:"priority,omitempty"`
 }
 
 type filteringConfig struct {
-	Filters          []filterJSON `json:"filters"`
-	WhitelistFilters []filterJSON `json:"whitelist_filters"`
-	UserRules        []string     `json:"user_rules"`
-	Interval         uint32       `json:"interval"` // in hours
-	Enabled          bool         `json:"enabled"`
+	Filters           []filterJSON `json:"filters"`
+	WhitelistFilters  []filterJSON `json:"whitelist_filters"`
+	DnsRoutingFilters []filterJSON `json:"dns_routing_filters"` // DNS routing filters
+	UserRules         []string     `json:"user_rules"`
+	Interval          uint32       `json:"interval"` // in hours
+	Enabled           bool         `json:"enabled"`
 }
 
 func filterToJSON(f FilterYAML) filterJSON {
@@ -428,7 +521,11 @@ func filterToJSON(f FilterYAML) filterJSON {
 		URL:     f.URL,
 		Name:    f.Name,
 		// #nosec G115 -- The number of rules must not be negative.
-		RulesCount: uint64(f.RulesCount),
+		RulesCount:     uint64(f.RulesCount),
+		DnsRouting:     f.DnsRouting,
+		UpstreamGroup:  f.UpstreamGroup,
+		UpdateInterval: f.UpdateInterval,
+		Priority:       f.Priority,
 	}
 
 	if !f.LastUpdated.IsZero() {
@@ -446,7 +543,12 @@ func (d *DNSFilter) handleFilteringStatus(w http.ResponseWriter, r *http.Request
 	resp.Interval = d.conf.FiltersUpdateIntervalHours
 	for _, f := range d.conf.Filters {
 		fj := filterToJSON(f)
-		resp.Filters = append(resp.Filters, fj)
+		// Separate DNS routing filters from regular filters
+		if f.DnsRouting {
+			resp.DnsRoutingFilters = append(resp.DnsRoutingFilters, fj)
+		} else {
+			resp.Filters = append(resp.Filters, fj)
+		}
 	}
 	for _, f := range d.conf.WhitelistFilters {
 		fj := filterToJSON(f)

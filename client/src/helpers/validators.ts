@@ -406,3 +406,35 @@ export const validatePlainDns = (value: any, allValues: any) => {
 
     return undefined;
 };
+
+/**
+ * Validates URL format for DNS routing rules
+ * @param value {string}
+ * @returns {undefined|string}
+ */
+export const validateDnsRoutingUrl = (value: any) => {
+    if (!value) {
+        return i18next.t('form_error_required');
+    }
+    
+    const formattedValue = value.trim();
+    
+    // Check if it's a valid HTTP/HTTPS URL
+    if (!formattedValue.startsWith('http://') && !formattedValue.startsWith('https://')) {
+        return i18next.t('form_error_url_protocol');
+    }
+    
+    // Check minimum length (protocol + domain)
+    if (formattedValue.length < 12) {
+        return i18next.t('form_error_url_too_short');
+    }
+    
+    // Basic URL format validation
+    try {
+        new URL(formattedValue);
+    } catch {
+        return i18next.t('form_error_url_format');
+    }
+    
+    return undefined;
+};

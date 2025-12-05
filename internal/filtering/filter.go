@@ -33,10 +33,16 @@ type FilterYAML struct {
 	Enabled     bool
 	URL         string    // URL or a file path
 	Name        string    `yaml:"name"`
-	RulesCount  int       `yaml:"-"`
-	LastUpdated time.Time `yaml:"-"`
+	RulesCount  int       `yaml:"rules_count,omitempty"`
+	LastUpdated time.Time `yaml:"last_updated,omitempty"`
 	checksum    uint32    // checksum of the file data
 	white       bool
+
+	// DNS Routing fields
+	DnsRouting     bool   `yaml:"dns_routing"`      // Indicates this is a DNS routing filter
+	UpstreamGroup  string `yaml:"upstream_group"`   // Target upstream group ID
+	UpdateInterval int    `yaml:"update_interval"`  // Update interval in minutes (0 = use global setting)
+	Priority       int    `yaml:"priority"`         // Priority for matching (lower = higher priority)
 
 	Filter `yaml:",inline"`
 }
@@ -89,6 +95,7 @@ const (
 // filterSetProperties searches for the particular filter list by url and sets
 // the values of newList to it, updating afterwards if needed.  It returns true
 // if the update was performed and the filtering engine restart is required.
+// This should NOT be used for DNS routing filters - they are managed by the DNS routing file manager.
 func (d *DNSFilter) filterSetProperties(
 	listURL string,
 	newList FilterYAML,
@@ -108,6 +115,12 @@ func (d *DNSFilter) filterSetProperties(
 	}
 
 	flt := &filters[i]
+	
+	// DNS routing filters should not be updated through this method
+	if flt.DnsRouting {
+		return false, errors.Error("DNS routing filters must be updated through the DNS routing file manager")
+	}
+	
 	d.logger.DebugContext(
 		context.TODO(),
 		"updating filter",
@@ -117,17 +130,37 @@ func (d *DNSFilter) filterSetProperties(
 		"filter_url", flt.URL,
 	)
 
-	defer func(oldURL, oldName string, oldEnabled bool, oldUpdated time.Time, oldRulesCount int) {
+	defer func(oldURL, oldName string, oldEnabled bool, oldUpdated time.Time, oldRulesCount int, 
+		oldUpstreamGroup string, oldUpdateInterval, oldPriority int) {
 		if err != nil {
 			flt.URL = oldURL
 			flt.Name = oldName
 			flt.Enabled = oldEnabled
 			flt.LastUpdated = oldUpdated
 			flt.RulesCount = oldRulesCount
+			flt.UpstreamGroup = oldUpstreamGroup
+			flt.UpdateInterval = oldUpdateInterval
+			flt.Priority = oldPriority
 		}
-	}(flt.URL, flt.Name, flt.Enabled, flt.LastUpdated, flt.RulesCount)
+	}(flt.URL, flt.Name, flt.Enabled, flt.LastUpdated, flt.RulesCount,
+		flt.UpstreamGroup, flt.UpdateInterval, flt.Priority)
 
 	flt.Name = newList.Name
+	
+	// Update DNS routing fields
+	if flt.UpstreamGroup != newList.UpstreamGroup {
+		flt.UpstreamGroup = newList.UpstreamGroup
+		shouldRestart = true
+	}
+	
+	if flt.UpdateInterval != newList.UpdateInterval {
+		flt.UpdateInterval = newList.UpdateInterval
+	}
+	
+	if flt.Priority != newList.Priority {
+		flt.Priority = newList.Priority
+		shouldRestart = true
+	}
 
 	if flt.URL != newList.URL {
 		if d.filterExistsLocked(newList.URL) {
@@ -221,6 +254,13 @@ func (d *DNSFilter) filterAdd(flt FilterYAML) (err error) {
 func (d *DNSFilter) loadFilters(ctx context.Context, array []FilterYAML) {
 	for i := range array {
 		filter := &array[i] // otherwise we're operating on a copy
+		
+		// Skip DNS routing rules - they are handled by the DNS router, not the filter engine
+		if filter.DnsRouting {
+			d.logger.DebugContext(ctx, "skipping DNS routing rule", "id", filter.ID, "name", filter.Name)
+			continue
+		}
+		
 		if filter.ID == 0 {
 			newID := d.idGen.next()
 			d.logger.WarnContext(ctx, "filter has no id", "idx", i, "new_id", newID)
@@ -271,6 +311,61 @@ func (d *DNSFilter) tryRefreshFilters(block, allow, force bool) (updated int, is
 	return updated, isNetworkErr, ok
 }
 
+// tryRefreshSingleFilter refreshes a single filter by URL.
+// This should NOT be used for DNS routing filters - they are managed by the DNS routing file manager.
+func (d *DNSFilter) tryRefreshSingleFilter(url string, dnsRouting bool) (updated int, isNetworkErr, ok bool) {
+	if ok = d.refreshLock.TryLock(); !ok {
+		return 0, false, false
+	}
+	defer d.refreshLock.Unlock()
+
+	ctx := context.TODO()
+	
+	// DNS routing filters should not be refreshed through this method
+	if dnsRouting {
+		d.logger.ErrorContext(ctx, "DNS routing filters must be refreshed through the DNS routing file manager", "url", url)
+		return 0, false, true
+	}
+	
+	d.conf.filtersMu.Lock()
+	defer d.conf.filtersMu.Unlock()
+
+	// Find the filter by URL (skip DNS routing filters)
+	var targetFilter *FilterYAML
+	for i := range d.conf.Filters {
+		f := &d.conf.Filters[i]
+		if f.URL == url && !f.DnsRouting {
+			targetFilter = f
+			break
+		}
+	}
+
+	if targetFilter == nil {
+		d.logger.ErrorContext(ctx, "filter not found", "url", url)
+		return 0, false, true
+	}
+
+	if !targetFilter.Enabled {
+		d.logger.DebugContext(ctx, "filter is disabled, skipping refresh", "url", url)
+		return 0, false, true
+	}
+
+	// Update the filter
+	wasUpdated, err := d.update(targetFilter)
+	if err != nil {
+		d.logger.ErrorContext(ctx, "updating filter", "url", url, slogutil.KeyError, err)
+		return 0, true, true
+	}
+
+	if wasUpdated {
+		d.EnableFilters(false)
+		removeOldFilterFile(ctx, d.logger, targetFilter.Path(d.conf.DataDir))
+		return 1, false, true
+	}
+
+	return 0, false, true
+}
+
 // listsToUpdate returns the slice of filter lists that could be updated.
 func (d *DNSFilter) listsToUpdate(filters *[]FilterYAML, force bool) (toUpd []FilterYAML) {
 	now := time.Now()
@@ -282,6 +377,11 @@ func (d *DNSFilter) listsToUpdate(filters *[]FilterYAML, force bool) (toUpd []Fi
 		flt := &(*filters)[i] // otherwise we will be operating on a copy
 
 		if !flt.Enabled {
+			continue
+		}
+
+		// Skip DNS routing filters - they are managed by the DNS routing file manager
+		if flt.DnsRouting {
 			continue
 		}
 
@@ -499,6 +599,11 @@ func (d *DNSFilter) update(filter *FilterYAML) (b bool, err error) {
 func (d *DNSFilter) updateIntl(ctx context.Context, flt *FilterYAML) (ok bool, err error) {
 	d.logger.DebugContext(ctx, "downloading update for filter", "id", flt.ID, "url", flt.URL)
 
+	// Handle DNS routing rules differently
+	if flt.DnsRouting {
+		return d.updateDnsRoutingFilter(ctx, flt)
+	}
+
 	var res *rulelist.ParseResult
 
 	tmpFile, err := aghrenameio.NewPendingFile(flt.Path(d.conf.DataDir), aghos.DefaultPermFile)
@@ -521,6 +626,25 @@ func (d *DNSFilter) updateIntl(ctx context.Context, flt *FilterYAML) (ok bool, e
 	res, err = p.Parse(tmpFile, r, *bufPtr)
 
 	return res.Checksum != flt.checksum && err == nil, err
+}
+
+// updateDnsRoutingFilter updates a DNS routing filter by calling the File Manager.
+func (d *DNSFilter) updateDnsRoutingFilter(ctx context.Context, flt *FilterYAML) (ok bool, err error) {
+	d.logger.DebugContext(ctx, "updating DNS routing filter via File Manager", "id", flt.ID, "url", flt.URL)
+
+	// DNS routing filters are managed by the File Manager, which handles
+	// downloading, parsing, and updating. We just need to update the timestamp.
+	// The actual refresh is triggered by the File Manager's periodic update mechanism.
+	
+	// For now, just update the timestamp to prevent repeated update attempts
+	flt.LastUpdated = time.Now()
+	
+	d.logger.InfoContext(ctx, "DNS routing filter managed by File Manager",
+		"id", flt.ID,
+		"note", "actual updates handled by File Manager",
+	)
+
+	return false, nil
 }
 
 // finalizeUpdate closes and gets rid of temporary file f with filter's content
@@ -662,6 +786,11 @@ func (d *DNSFilter) enableFiltersLocked(ctx context.Context, async bool) {
 	}
 
 	for _, filter := range d.conf.Filters {
+		// Skip DNS routing rules - they are handled by the DNS router
+		if filter.DnsRouting {
+			continue
+		}
+		
 		if !filter.Enabled {
 			continue
 		}
@@ -674,6 +803,11 @@ func (d *DNSFilter) enableFiltersLocked(ctx context.Context, async bool) {
 
 	var allowFilters []Filter
 	for _, filter := range d.conf.WhitelistFilters {
+		// Skip DNS routing rules - they are handled by the DNS router
+		if filter.DnsRouting {
+			continue
+		}
+		
 		if !filter.Enabled {
 			continue
 		}

@@ -160,6 +160,50 @@ type Config struct {
 	// BootstrapPreferIPv6, if true, instructs the bootstrapper to prefer IPv6
 	// addresses to IPv4 ones for DoH, DoQ, and DoT.
 	BootstrapPreferIPv6 bool `yaml:"bootstrap_prefer_ipv6"`
+	
+	// CustomDomainRulesGetter is a callback to get custom domain routing rules
+	// from the global configuration.
+	CustomDomainRulesGetter func() []CustomDomainRuleConfig `yaml:"-"`
+	
+	// CustomDomainRulesSetter is a callback to set custom domain routing rules
+	// in the global configuration.
+	CustomDomainRulesSetter func([]CustomDomainRuleConfig) `yaml:"-"`
+	
+	// UpstreamGroupGetter is a callback to get an upstream group by ID.
+	UpstreamGroupGetter func(groupID string) *UpstreamGroupConfig `yaml:"-"`
+	
+	// DnsRoutingRulesGetter is a callback to get all DNS routing rules.
+	DnsRoutingRulesGetter func() []DnsRoutingRuleConfig `yaml:"-"`
+}
+
+// DnsRoutingRuleConfig represents a DNS routing rule configuration.
+type DnsRoutingRuleConfig struct {
+	ID             int64
+	Enabled        bool
+	URL            string
+	Name           string
+	UpstreamGroup  string
+	Priority       int
+	RulesCount     int
+	LastUpdated    string
+}
+
+// UpstreamGroupConfig represents an upstream group configuration.
+type UpstreamGroupConfig struct {
+	ID           string
+	Name         string
+	Enabled      bool
+	UpstreamDNS  []string
+	FallbackDNS  []string
+	BootstrapDNS []string
+}
+
+// CustomDomainRuleConfig represents a custom domain routing rule in the config.
+type CustomDomainRuleConfig struct {
+	Domain        string
+	MatchType     string
+	UpstreamGroup string
+	Enabled       bool
 }
 
 // EDNSClientSubnet is the settings list for EDNS Client Subnet.

@@ -45,11 +45,17 @@ tmp/
 # Exclude backup and test directories
 AdGuardHome-master-v5/
 
-# Build scripts
-build-*.ps1
+# Build scripts (keep build-release.ps1)
 start-*.ps1
 test-*.ps1
 
 # Temporary files
 COMMIT_MESSAGE.txt
 *.backup
+
+# Release binaries (too large for git, use GitHub Releases)
+/release/*.exe
+/release/AdGuardHome_*
+
+# Archive documents
+/docs/archive/

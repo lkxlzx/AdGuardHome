@@ -220,6 +220,19 @@ func (web *webAPI) registerControlHandlers() {
 	safeRegister(web.httpReg, http.MethodDelete, "DELETE /control/dns/upstream_groups/{id}", web.handleDeleteUpstreamGroup)
 	safeRegister(web.httpReg, http.MethodPost, "POST /control/dns/upstream_groups/{id}/default", web.handleSetDefaultGroup)
 	safeRegister(web.httpReg, http.MethodPost, "POST /control/dns/upstream_groups/{id}/test", web.handleTestUpstreamGroup)
+	
+	// DNS routing rules
+	safeRegister(web.httpReg, http.MethodGet, "GET /control/dns_routing/rules", web.handleGetDnsRoutingRules)
+	safeRegister(web.httpReg, http.MethodPost, "POST /control/dns_routing/add", web.handleAddDnsRoutingRule)
+	safeRegister(web.httpReg, http.MethodPost, "POST /control/dns_routing/update", web.handleUpdateDnsRoutingRule)
+	safeRegister(web.httpReg, http.MethodPost, "POST /control/dns_routing/delete", web.handleDeleteDnsRoutingRule)
+	safeRegister(web.httpReg, http.MethodPost, "POST /control/dns_routing/refresh", web.handleRefreshDnsRoutingRule)
+	
+	// DNS routing custom domain rules
+	safeRegister(web.httpReg, http.MethodGet, "GET /control/dns_routing/custom_rules", web.handleGetCustomDomainRules)
+	safeRegister(web.httpReg, http.MethodPost, "POST /control/dns_routing/custom_rules/add", web.handleAddCustomDomainRule)
+	safeRegister(web.httpReg, http.MethodPost, "POST /control/dns_routing/custom_rules/update", web.handleUpdateCustomDomainRule)
+	safeRegister(web.httpReg, http.MethodPost, "POST /control/dns_routing/custom_rules/delete", web.handleDeleteCustomDomainRule)
 
 	// No authentication is required for DoH/DoT configuration endpoints.
 	mux.Handle(

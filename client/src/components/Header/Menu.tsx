@@ -61,16 +61,16 @@ const SETTINGS_ITEMS = [
 
 const FILTERS_ITEMS = [
     {
+        route: FILTERS_URLS.dns_routing,
+        text: 'dns_routing',
+    },
+    {
         route: FILTERS_URLS.dns_blocklists,
         text: 'dns_blocklists',
     },
     {
         route: FILTERS_URLS.dns_allowlists,
         text: 'dns_allowlists',
-    },
-    {
-        route: FILTERS_URLS.dns_routing,
-        text: 'dns_routing',
     },
     {
         route: FILTERS_URLS.dns_rewrites,

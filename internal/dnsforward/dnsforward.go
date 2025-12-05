@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"runtime"
 	"slices"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/AdguardTeam/AdGuardHome/internal/aghnet"
 	"github.com/AdguardTeam/AdGuardHome/internal/aghslog"
 	"github.com/AdguardTeam/AdGuardHome/internal/client"
+	"github.com/AdguardTeam/AdGuardHome/internal/dnsrouting"
 	"github.com/AdguardTeam/AdGuardHome/internal/filtering"
 	"github.com/AdguardTeam/AdGuardHome/internal/querylog"
 	"github.com/AdguardTeam/AdGuardHome/internal/rdns"
@@ -91,6 +93,14 @@ type SystemResolvers interface {
 	Addrs() (addrs []netip.AddrPort)
 }
 
+// DNSRouter is an interface for DNS routing based on domain rules.
+// It selects which upstream group to use for a given domain.
+type DNSRouter interface {
+	// Match finds the upstream group for a given domain.
+	// Returns the upstream group ID and true if a match is found.
+	Match(ctx context.Context, domain string) (upstreamGroup string, matched bool)
+}
+
 // Server is the main way to start a DNS server.
 //
 // Example:
@@ -151,6 +161,10 @@ type Server struct {
 	// dnsFilter is the DNS filter for filtering client's DNS requests and
 	// responses.
 	dnsFilter *filtering.DNSFilter
+	
+	// dnsRouter is the DNS routing engine for selecting upstream groups based on domain rules.
+	// It is independent from dnsFilter and does not block domains.
+	dnsRouter *dnsrouting.Router
 
 	// dnsProxy is the DNS proxy for forwarding client's DNS requests.
 	dnsProxy *proxy.Proxy
@@ -513,6 +527,11 @@ func (s *Server) Prepare(ctx context.Context, conf *ServerConfig) (err error) {
 		// Don't wrap the error, because it's informative enough as is.
 		return err
 	}
+	
+	// Initialize DNS router if getter is configured
+	if s.conf.DnsRoutingRulesGetter != nil {
+		s.initializeDnsRouter(ctx)
+	}
 
 	proxyConfig, err := s.newProxyConfig(ctx)
 	if err != nil {
@@ -547,6 +566,295 @@ func (s *Server) Prepare(ctx context.Context, conf *ServerConfig) (err error) {
 	s.registerHandlers()
 
 	return nil
+}
+
+// initializeDnsRouter initializes the DNS router with rules from configuration.
+func (s *Server) initializeDnsRouter(ctx context.Context) {
+	s.logger.InfoContext(ctx, "initializing DNS router")
+	
+	// Get routing rules from configuration
+	if s.conf.DnsRoutingRulesGetter == nil {
+		s.logger.WarnContext(ctx, "DNS routing rules getter not configured")
+		return
+	}
+	
+	rules := s.conf.DnsRoutingRulesGetter()
+	
+	// Get custom domain rules
+	var customRules []CustomDomainRuleConfig
+	if s.conf.CustomDomainRulesGetter != nil {
+		customRules = s.conf.CustomDomainRulesGetter()
+	}
+	
+	totalRules := len(rules) + len(customRules)
+	if totalRules == 0 {
+		s.logger.InfoContext(ctx, "no DNS routing rules configured")
+		return
+	}
+	
+	s.logger.InfoContext(ctx, "loaded DNS routing rules", 
+		"rule_files", len(rules), 
+		"custom_rules", len(customRules),
+		"total", totalRules)
+	
+	// Create router instance
+	s.dnsRouter = dnsrouting.NewRouter(s.logger)
+	
+	// Convert custom domain rules to dnsrouting.Rule format
+	routingRules := make([]dnsrouting.Rule, 0, len(customRules))
+	for _, rule := range customRules {
+		routingRules = append(routingRules, dnsrouting.Rule{
+			Domain:        rule.Domain,
+			MatchType:     dnsrouting.MatchType(rule.MatchType),
+			UpstreamGroup: rule.UpstreamGroup,
+			Priority:      1000, // Custom rules have highest priority
+			Enabled:       rule.Enabled,
+		})
+		
+		if rule.Enabled {
+			s.logger.DebugContext(ctx, "loaded custom domain rule",
+				"domain", rule.Domain,
+				"match_type", rule.MatchType,
+				"upstream_group", rule.UpstreamGroup)
+		}
+	}
+	
+	// Set custom rules in router
+	s.dnsRouter.SetCustomRules(routingRules)
+	
+	// Load rules from rule files
+	for _, rule := range rules {
+		if !rule.Enabled {
+			s.logger.DebugContext(ctx, "skipping disabled rule", "name", rule.Name)
+			continue
+		}
+		
+		// Load and parse the rule file if it exists
+		parsedRules := s.loadRoutingRuleFile(ctx, rule.ID, rule.UpstreamGroup, rule.Priority)
+		
+		// Create rule source
+		source := &dnsrouting.RuleSource{
+			ID:            rule.ID,
+			Name:          rule.Name,
+			URL:           rule.URL,
+			UpstreamGroup: rule.UpstreamGroup,
+			Priority:      rule.Priority,
+			Enabled:       rule.Enabled,
+			Rules:         parsedRules,
+			RulesCount:    len(parsedRules),
+			LastUpdated:   rule.LastUpdated,
+		}
+		
+		err := s.dnsRouter.AddSource(source)
+		if err != nil {
+			s.logger.ErrorContext(ctx, "adding routing source",
+				"name", rule.Name,
+				"error", err)
+			continue
+		}
+		
+		s.logger.InfoContext(ctx, "added DNS routing rule file",
+			"name", rule.Name,
+			"url", rule.URL,
+			"upstream_group", rule.UpstreamGroup,
+			"priority", rule.Priority,
+			"loaded_rules", len(parsedRules))
+	}
+	
+	s.logger.InfoContext(ctx, "DNS router initialized successfully")
+}
+
+// loadRoutingRuleFile loads and parses a routing rule file from disk.
+func (s *Server) loadRoutingRuleFile(ctx context.Context, filterID int64, upstreamGroup string, priority int) []dnsrouting.Rule {
+	// The file should be at data/filters/{filterID}.txt
+	filePath := fmt.Sprintf("data/filters/%d.txt", filterID)
+	
+	file, err := os.Open(filePath)
+	if err != nil {
+		s.logger.DebugContext(ctx, "routing rule file not found",
+			"filter_id", filterID,
+			"path", filePath,
+			"error", err)
+		return nil
+	}
+	defer file.Close()
+	
+	// Parse the file using dnsrouting parser
+	parser := dnsrouting.NewParser()
+	result, err := parser.Parse(file)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to parse routing rule file",
+			"filter_id", filterID,
+			"error", err)
+		return nil
+	}
+	
+	s.logger.InfoContext(ctx, "loaded routing rule file",
+		"filter_id", filterID,
+		"format", result.Format,
+		"total_lines", result.TotalLines,
+		"valid_rules", result.ValidRules)
+	
+	// Convert parsed rules to routing rules
+	rules := make([]dnsrouting.Rule, 0, len(result.Rules))
+	for _, parsedRule := range result.Rules {
+		// Convert match type string to MatchType
+		var matchType dnsrouting.MatchType
+		switch parsedRule.MatchType {
+		case "DOMAIN":
+			matchType = dnsrouting.MatchTypeDomain
+		case "DOMAIN-SUFFIX":
+			matchType = dnsrouting.MatchTypeDomainSuffix
+		case "DOMAIN-KEYWORD":
+			matchType = dnsrouting.MatchTypeDomainKeyword
+		default:
+			matchType = dnsrouting.MatchTypeDomainSuffix // Default
+		}
+		
+		rules = append(rules, dnsrouting.Rule{
+			Domain:        parsedRule.Domain,
+			MatchType:     matchType,
+			UpstreamGroup: upstreamGroup,
+			Priority:      priority,
+			Enabled:       true,
+		})
+	}
+	
+	return rules
+}
+
+// ReloadDnsRouter reinitializes the DNS router with current configuration.
+// This is called when custom domain rules are updated.
+func (s *Server) ReloadDnsRouter(ctx context.Context) {
+	s.logger.InfoContext(ctx, "reloading DNS router")
+	
+	// Get current custom domain rules
+	var customRules []CustomDomainRuleConfig
+	if s.conf.CustomDomainRulesGetter != nil {
+		customRules = s.conf.CustomDomainRulesGetter()
+	}
+	
+	// Create or recreate router
+	if s.dnsRouter == nil {
+		s.dnsRouter = dnsrouting.NewRouter(s.logger)
+	}
+	
+	// Convert custom domain rules to dnsrouting.Rule format
+	routingRules := make([]dnsrouting.Rule, 0, len(customRules))
+	for _, rule := range customRules {
+		routingRules = append(routingRules, dnsrouting.Rule{
+			Domain:        rule.Domain,
+			MatchType:     dnsrouting.MatchType(rule.MatchType),
+			UpstreamGroup: rule.UpstreamGroup,
+			Priority:      1000,
+			Enabled:       rule.Enabled,
+		})
+	}
+	
+	// Update custom rules in router
+	s.dnsRouter.SetCustomRules(routingRules)
+	
+	s.logger.InfoContext(ctx, "DNS router reloaded",
+		"custom_rules", len(customRules))
+}
+
+// RemoveDnsRoutingSource removes a DNS routing source from the router.
+// This is called when a rule is disabled or deleted.
+func (s *Server) RemoveDnsRoutingSource(filterID int64) {
+	if s.dnsRouter == nil {
+		return
+	}
+	
+	ctx := context.Background()
+	err := s.dnsRouter.RemoveSource(filterID)
+	if err != nil {
+		s.logger.DebugContext(ctx, "DNS routing source not found (already removed)",
+			"filter_id", filterID)
+		return
+	}
+	
+	s.logger.InfoContext(ctx, "removed DNS routing source",
+		"filter_id", filterID)
+}
+
+// UpdateDnsRoutingRules updates the DNS routing rules for a specific filter.
+// This is called by the filtering module when rules are parsed and updated.
+func (s *Server) UpdateDnsRoutingRules(filterID int64, upstreamGroup string, priority int, rulesInterface []interface{}) {
+	ctx := context.Background()
+	
+	// Create router if it doesn't exist
+	if s.dnsRouter == nil {
+		s.logger.InfoContext(ctx, "creating DNS router on demand")
+		s.dnsRouter = dnsrouting.NewRouter(s.logger)
+	}
+	
+	s.logger.InfoContext(ctx, "updating DNS routing rules from filtering module",
+		"filter_id", filterID,
+		"upstream_group", upstreamGroup,
+		"priority", priority,
+		"rules_count", len(rulesInterface))
+	
+	// Convert interface{} back to dnsrouting.ParsedRule
+	parsedRules := make([]dnsrouting.ParsedRule, 0, len(rulesInterface))
+	for _, ruleInterface := range rulesInterface {
+		if rule, ok := ruleInterface.(dnsrouting.ParsedRule); ok {
+			parsedRules = append(parsedRules, rule)
+		}
+	}
+	
+	// Convert to routing rules
+	rules := make([]dnsrouting.Rule, 0, len(parsedRules))
+	for _, parsedRule := range parsedRules {
+		var matchType dnsrouting.MatchType
+		switch parsedRule.MatchType {
+		case "DOMAIN":
+			matchType = dnsrouting.MatchTypeDomain
+		case "DOMAIN-SUFFIX":
+			matchType = dnsrouting.MatchTypeDomainSuffix
+		case "DOMAIN-KEYWORD":
+			matchType = dnsrouting.MatchTypeDomainKeyword
+		default:
+			matchType = dnsrouting.MatchTypeDomainSuffix
+		}
+		
+		rules = append(rules, dnsrouting.Rule{
+			Domain:        parsedRule.Domain,
+			MatchType:     matchType,
+			UpstreamGroup: upstreamGroup,
+			Priority:      0,
+			Enabled:       true,
+		})
+	}
+	
+	// Update or add the source
+	source := &dnsrouting.RuleSource{
+		ID:            filterID,
+		Name:          "",
+		URL:           "",
+		UpstreamGroup: upstreamGroup,
+		Priority:      priority,
+		Enabled:       true,
+		Rules:         rules,
+		RulesCount:    len(rules),
+		LastUpdated:   "",
+	}
+	
+	// Try to update existing source, if not found, add it
+	err := s.dnsRouter.UpdateSource(source)
+	if err != nil {
+		// Source doesn't exist, add it
+		err = s.dnsRouter.AddSource(source)
+		if err != nil {
+			s.logger.ErrorContext(ctx, "failed to add DNS routing source",
+				"filter_id", filterID,
+				"error", err)
+			return
+		}
+	}
+	
+	s.logger.InfoContext(ctx, "DNS routing rules updated successfully",
+		"filter_id", filterID,
+		"rules_count", len(rules))
 }
 
 // prepareUpstreamSettings sets upstream DNS server settings.

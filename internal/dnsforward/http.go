@@ -125,6 +125,17 @@ type jsonDNSConfig struct {
 	// systemResolvers to the front-end.  It's not a pointer to the slice since
 	// there is no need to omit it while decoding from JSON.
 	DefaultLocalPTRUpstreams []string `json:"default_local_ptr_upstreams,omitempty"`
+	
+	// CustomDomainRules is the list of custom domain routing rules for DNS routing.
+	CustomDomainRules *[]CustomDomainRule `json:"custom_domain_rules,omitempty"`
+}
+
+// CustomDomainRule represents a custom domain routing rule.
+type CustomDomainRule struct {
+	Domain        string `json:"domain"`
+	MatchType     string `json:"matchType"`
+	UpstreamGroup string `json:"upstreamGroup"`
+	Enabled       bool   `json:"enabled"`
 }
 
 // jsonUpstreamMode is a enumeration of upstream modes.
@@ -192,6 +203,24 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 		s.logger.ErrorContext(ctx, "getting local ptr upstreams", slogutil.KeyError, err)
 	}
 
+	// Get custom domain rules from global config if getter is available
+	var customDomainRules *[]CustomDomainRule
+	if s.conf.CustomDomainRulesGetter != nil {
+		rules := s.conf.CustomDomainRulesGetter()
+		if len(rules) > 0 {
+			convertedRules := make([]CustomDomainRule, len(rules))
+			for i, rule := range rules {
+				convertedRules[i] = CustomDomainRule{
+					Domain:        rule.Domain,
+					MatchType:     rule.MatchType,
+					UpstreamGroup: rule.UpstreamGroup,
+					Enabled:       rule.Enabled,
+				}
+			}
+			customDomainRules = &convertedRules
+		}
+	}
+
 	return &jsonDNSConfig{
 		Upstreams:                &upstreams,
 		UpstreamsFile:            &upstreamFile,
@@ -223,6 +252,7 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 		LocalPTRUpstreams:        &localPTRUpstreams,
 		DefaultLocalPTRUpstreams: defPTRUps,
 		DisabledUntil:            protectionDisabledUntil,
+		CustomDomainRules:        customDomainRules,
 	}
 }
 
@@ -611,6 +641,20 @@ func (s *Server) setConfig(dc *jsonDNSConfig) (shouldRestart bool) {
 
 	setIfNotNil(&s.conf.EnableDNSSEC, dc.DNSSECEnabled)
 	setIfNotNil(&s.conf.AAAADisabled, dc.DisableIPv6)
+	
+	// Handle custom domain rules if setter is available
+	if dc.CustomDomainRules != nil && s.conf.CustomDomainRulesSetter != nil {
+		rules := make([]CustomDomainRuleConfig, len(*dc.CustomDomainRules))
+		for i, rule := range *dc.CustomDomainRules {
+			rules[i] = CustomDomainRuleConfig{
+				Domain:        rule.Domain,
+				MatchType:     rule.MatchType,
+				UpstreamGroup: rule.UpstreamGroup,
+				Enabled:       rule.Enabled,
+			}
+		}
+		s.conf.CustomDomainRulesSetter(rules)
+	}
 
 	return s.setConfigRestartable(dc)
 }

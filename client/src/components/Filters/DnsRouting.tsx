@@ -19,19 +19,21 @@ interface DnsConfig {
 interface DnsRoutingProps {
     getDnsRoutingFilters: () => unknown;
     addDnsRoutingFilter: (url: string, name: string, upstreamGroup: string, updateInterval: number, priority: number) => unknown;
-    editDnsRoutingFilter: (url: string, data: any) => unknown;
-    removeDnsRoutingFilter: (url: string) => unknown;
-    toggleDnsRoutingFilter: (url: string, data: any) => unknown;
-    refreshDnsRoutingFilters: (url?: string) => unknown;
+    editDnsRoutingFilter: (id: number, data: any) => unknown;
+    removeDnsRoutingFilter: (id: number) => unknown;
+    toggleDnsRoutingFilter: (filter: any) => unknown;
+    refreshDnsRoutingFilters: (id?: number) => unknown;
     toggleDnsRoutingModal: (payload?: any) => unknown;
     getDnsConfig: (...args: unknown[]) => unknown;
     setDnsConfig: (config: DnsConfig) => Promise<void>;
+    getUpstreamGroups: () => unknown;
     dnsConfig?: DnsConfig;
     addSuccessToast: (message: string) => unknown;
     addErrorToast: (error: any) => unknown;
     dnsRouting: {
         modalType: string;
         modalFilterUrl: string;
+        modalFilter: any;
         isModalOpen: boolean;
         processingRefreshFilters: boolean;
         processingRemoveFilter: boolean;
@@ -55,6 +57,7 @@ const DnsRouting: React.FC<DnsRoutingProps> = (props) => {
         toggleDnsRoutingModal,
         getDnsConfig,
         setDnsConfig,
+        getUpstreamGroups,
         dnsConfig,
         addSuccessToast,
         addErrorToast,
@@ -63,19 +66,37 @@ const DnsRouting: React.FC<DnsRoutingProps> = (props) => {
         t,
     } = props;
 
-    // Initialize data on mount
+    // Initialize data on mount (empty dependency array means run once on mount)
     useEffect(() => {
-        getDnsRoutingFilters();
-        getDnsConfig();
-    }, [getDnsRoutingFilters, getDnsConfig]);
+        let isMounted = true;
+        
+        // Load data only if component is still mounted
+        const loadData = async () => {
+            if (isMounted) {
+                getDnsRoutingFilters();
+                getDnsConfig();
+                getUpstreamGroups();
+            }
+        };
+        
+        loadData();
+        
+        // Cleanup function to prevent state updates after unmount
+        return () => {
+            isMounted = false;
+        };
+        
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Handle form submit
     const handleSubmit = (values: any) => {
         const { name, url, upstreamGroup, updateInterval, priority } = values;
         
-        if (dnsRouting.modalType === 'EDIT_FILTERS') {
-            editDnsRoutingFilter(dnsRouting.modalFilterUrl, {
+        if (dnsRouting.modalType === 'EDIT_FILTERS' && dnsRouting.modalFilter) {
+            editDnsRoutingFilter(dnsRouting.modalFilter.id, {
                 name,
+                url,
                 upstreamGroup,
                 updateInterval,
                 priority,
@@ -86,25 +107,21 @@ const DnsRouting: React.FC<DnsRoutingProps> = (props) => {
     };
 
     const handleEdit = (filter: any) => {
-        toggleDnsRoutingModal({ type: 'EDIT_FILTERS', url: filter.url });
+        toggleDnsRoutingModal({ type: 'EDIT_FILTERS', id: filter.id, filter });
     };
 
     const handleDelete = (filter: any) => {
         if (window.confirm(t('list_confirm_delete'))) {
-            removeDnsRoutingFilter(filter.url);
+            removeDnsRoutingFilter(filter.id);
         }
     };
 
     const handleToggle = (filter: any) => {
-        const data = {
-            ...filter,
-            enabled: !filter.enabled,
-        };
-        toggleDnsRoutingFilter(filter.url, data);
+        toggleDnsRoutingFilter(filter);
     };
 
     const handleRefreshSingle = (filter: any) => {
-        refreshDnsRoutingFilters(filter.url);
+        refreshDnsRoutingFilters(filter.id);
     };
 
     const handleRefreshAll = () => {
@@ -145,10 +162,11 @@ const DnsRouting: React.FC<DnsRoutingProps> = (props) => {
         processingFilters,
         modalType,
         modalFilterUrl,
+        modalFilter,
     } = dnsRouting;
 
     // Get current filter data for editing
-    const currentFilterData = filters.find((f: any) => f.url === modalFilterUrl) || null;
+    const currentFilterData = modalFilter || null;
     
     const loading =
         processingEditFilter ||
@@ -164,21 +182,32 @@ const DnsRouting: React.FC<DnsRoutingProps> = (props) => {
                 <div className="row">
                     <div className="col-md-12">
                         <Card subtitle={t('dns_routing_hint')}>
-                            <DnsRoutingTable
-                                filters={filters || []}
-                                loading={loading}
-                                onEdit={handleEdit}
-                                onDelete={handleDelete}
-                                onToggle={handleToggle}
-                                onRefresh={handleRefreshSingle}
-                                upstreamGroups={upstreamGroups}
-                            />
+                            {loading && filters.length === 0 ? (
+                                <div className="text-center p-4">
+                                    <div className="spinner-border text-primary" role="status">
+                                        <span className="sr-only">{t('loading')}</span>
+                                    </div>
+                                    <div className="mt-2">{t('loading_dns_routing_rules')}</div>
+                                </div>
+                            ) : (
+                                <>
+                                    <DnsRoutingTable
+                                        filters={filters || []}
+                                        loading={loading}
+                                        onEdit={handleEdit}
+                                        onDelete={handleDelete}
+                                        onToggle={handleToggle}
+                                        onRefresh={handleRefreshSingle}
+                                        upstreamGroups={upstreamGroups}
+                                    />
 
-                            <DnsRoutingActions
-                                onAddRule={handleAddRule}
-                                onCheckUpdates={handleRefreshAll}
-                                processingRefresh={processingRefreshFilters}
-                            />
+                                    <DnsRoutingActions
+                                        onAddRule={handleAddRule}
+                                        onCheckUpdates={handleRefreshAll}
+                                        processingRefresh={processingRefreshFilters}
+                                    />
+                                </>
+                            )}
                         </Card>
 
                         <Card 

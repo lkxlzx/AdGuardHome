@@ -148,6 +148,9 @@ type configuration struct {
 	Filters          []filtering.FilterYAML `yaml:"filters"`
 	WhitelistFilters []filtering.FilterYAML `yaml:"whitelist_filters"`
 	UserRules        []string               `yaml:"user_rules"`
+	
+	// DnsRoutingRules are the DNS routing rule sources (independent from filters).
+	DnsRoutingRules []DnsRoutingRule `yaml:"dns_routing_rules"`
 
 	DHCP      *dhcpd.ServerConfig `yaml:"dhcp"`
 	Filtering *filtering.Config   `yaml:"filtering"`
@@ -272,6 +275,30 @@ type dnsConfig struct {
 
 	// UpstreamGroups is the list of DNS upstream groups.
 	UpstreamGroups []UpstreamGroup `yaml:"upstream_groups"`
+	
+	// CustomDomainRules is the list of custom domain routing rules.
+	CustomDomainRules []CustomDomainRule `yaml:"custom_domain_rules"`
+}
+
+// CustomDomainRule represents a custom domain routing rule.
+type CustomDomainRule struct {
+	Domain        string `yaml:"domain" json:"domain"`
+	MatchType     string `yaml:"match_type" json:"matchType"`
+	UpstreamGroup string `yaml:"upstream_group" json:"upstreamGroup"`
+	Enabled       bool   `yaml:"enabled" json:"enabled"`
+}
+
+// DnsRoutingRule represents a DNS routing rule source.
+type DnsRoutingRule struct {
+	ID             int64  `yaml:"id" json:"id"`
+	Enabled        bool   `yaml:"enabled" json:"enabled"`
+	URL            string `yaml:"url" json:"url"`
+	Name           string `yaml:"name" json:"name"`
+	UpstreamGroup  string `yaml:"upstream_group" json:"upstream_group"`
+	UpdateInterval int    `yaml:"update_interval" json:"update_interval"` // in minutes
+	Priority       int    `yaml:"priority" json:"priority"`
+	RulesCount     int    `yaml:"rules_count" json:"rules_count"`
+	LastUpdated    string `yaml:"last_updated" json:"last_updated"`
 }
 
 // pendingRequests is a block with pending requests configuration.
@@ -895,7 +922,11 @@ func (c *configuration) write(
 
 	if globalContext.filters != nil {
 		globalContext.filters.WriteDiskConfig(config.Filtering)
+		
+		// Keep all filters including DNS routing rules
+		// DNS routing rules are now managed through the config file
 		config.Filters = config.Filtering.Filters
+		
 		config.WhitelistFilters = config.Filtering.WhitelistFilters
 		config.UserRules = config.Filtering.UserRules
 	}

@@ -30,7 +30,7 @@ export const DnsRoutingForm = ({
     initialValues,
 }: Props) => {
     const { t } = useTranslation();
-    const upstreamGroups = useSelector((state: RootState) => state.dnsConfig.upstream_groups || []);
+    const upstreamGroups = useSelector((state: RootState) => state.upstreamGroups.groups || []);
 
     const {
         control,
@@ -75,7 +75,27 @@ export const DnsRoutingForm = ({
                     <Controller
                         name="url"
                         control={control}
-                        rules={{ validate: validateRequiredValue }}
+                        rules={{ 
+                            validate: (value) => {
+                                // Validate URL format
+                                if (!value || !value.trim()) {
+                                    return t('form_error_required');
+                                }
+                                const trimmed = value.trim();
+                                if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+                                    return t('form_error_url_protocol');
+                                }
+                                if (trimmed.length < 12) {
+                                    return t('form_error_url_too_short');
+                                }
+                                try {
+                                    new URL(trimmed);
+                                } catch {
+                                    return t('form_error_url_format');
+                                }
+                                return undefined;
+                            }
+                        }}
                         render={({ field, fieldState }) => (
                             <Input
                                 {...field}
@@ -137,6 +157,21 @@ export const DnsRoutingForm = ({
                     <Controller
                         name="updateInterval"
                         control={control}
+                        rules={{
+                            validate: (value) => {
+                                const num = typeof value === 'string' ? parseInt(value) : value;
+                                if (isNaN(num) || num < 0) {
+                                    return t('form_error_negative');
+                                }
+                                if (num > 0 && num < 60) {
+                                    return t('form_error_update_interval_too_short');
+                                }
+                                if (num > 525600) { // 1 year in minutes
+                                    return t('form_error_update_interval_too_long');
+                                }
+                                return undefined;
+                            }
+                        }}
                         render={({ field, fieldState }) => (
                             <>
                                 <input
@@ -145,7 +180,8 @@ export const DnsRoutingForm = ({
                                     min="0"
                                     className="form-control"
                                     disabled={processing}
-                                    onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                                    value={field.value}
+                                    onChange={(e) => field.onChange(parseInt(e.target.value, 10) || 0)}
                                 />
                                 {fieldState.error && (
                                     <div className="form__error">{fieldState.error.message}</div>
@@ -167,15 +203,29 @@ export const DnsRoutingForm = ({
                     <Controller
                         name="priority"
                         control={control}
+                        rules={{
+                            validate: (value) => {
+                                const num = typeof value === 'string' ? parseInt(value) : value;
+                                if (isNaN(num) || num < 0) {
+                                    return t('form_error_negative');
+                                }
+                                if (num > 1000) {
+                                    return t('form_error_priority_too_high');
+                                }
+                                return undefined;
+                            }
+                        }}
                         render={({ field, fieldState }) => (
                             <>
                                 <input
                                     {...field}
                                     type="number"
                                     min="0"
+                                    max="1000"
                                     className="form-control"
                                     disabled={processing}
-                                    onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                                    value={field.value}
+                                    onChange={(e) => field.onChange(parseInt(e.target.value, 10) || 0)}
                                 />
                                 {fieldState.error && (
                                     <div className="form__error">{fieldState.error.message}</div>

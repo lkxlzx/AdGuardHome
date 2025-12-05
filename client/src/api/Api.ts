@@ -759,6 +759,54 @@ class Api {
 
         return this.makeRequest(path, method);
     }
+
+    // DNS Routing
+    DNS_ROUTING_GET_RULES = { path: 'dns_routing/rules', method: 'GET' };
+
+    DNS_ROUTING_ADD_RULE = { path: 'dns_routing/add', method: 'POST' };
+
+    DNS_ROUTING_UPDATE_RULE = { path: 'dns_routing/update', method: 'POST' };
+
+    DNS_ROUTING_DELETE_RULE = { path: 'dns_routing/delete', method: 'POST' };
+
+    DNS_ROUTING_REFRESH_RULE = { path: 'dns_routing/refresh', method: 'POST' };
+
+    getDnsRoutingRules() {
+        const { path, method } = this.DNS_ROUTING_GET_RULES;
+        return this.makeRequest(path, method);
+    }
+
+    addDnsRoutingRule(data: any) {
+        const { path, method } = this.DNS_ROUTING_ADD_RULE;
+        const config = {
+            data,
+        };
+        return this.makeRequest(path, method, config);
+    }
+
+    updateDnsRoutingRule(data: any) {
+        const { path, method } = this.DNS_ROUTING_UPDATE_RULE;
+        const config = {
+            data,
+        };
+        return this.makeRequest(path, method, config);
+    }
+
+    deleteDnsRoutingRule(data: any) {
+        const { path, method } = this.DNS_ROUTING_DELETE_RULE;
+        const config = {
+            data,
+        };
+        return this.makeRequest(path, method, config);
+    }
+
+    refreshDnsRoutingRule(data: any) {
+        const { path, method } = this.DNS_ROUTING_REFRESH_RULE;
+        const config = {
+            data,
+        };
+        return this.makeRequest(path, method, config);
+    }
 }
 
 const apiClient = new Api();

@@ -94,6 +94,13 @@ type Config struct {
 	// ClientID or client IP address, and applies it to the filtering settings.
 	// It must not be nil.
 	ApplyClientFiltering func(clientID string, cliAddr netip.Addr, setts *Settings) `yaml:"-"`
+	
+	// OnDnsRoutingRulesUpdated is called when DNS routing rules are parsed and updated.
+	// It receives the filter ID, upstream group ID, priority, and the parsed rules.
+	OnDnsRoutingRulesUpdated func(filterID int64, upstreamGroup string, priority int, rules []interface{}) `yaml:"-"`
+
+	// DnsRoutingFileManager is the file manager for DNS routing rules.
+	DnsRoutingFileManager any `yaml:"-"`
 
 	// BlockedServices is the configuration of blocked services.
 	// Per-client settings can override this configuration.

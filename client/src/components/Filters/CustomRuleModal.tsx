@@ -35,7 +35,7 @@ const CustomRuleModal: React.FC<CustomRuleModalProps> = ({ isOpen, onClose, onSu
     }, [editingRule]);
 
     // Get upstream groups from Redux state
-    const upstreamGroups = useSelector((state: RootState) => state.dnsConfig.upstream_groups || []);
+    const upstreamGroups = useSelector((state: RootState) => state.upstreamGroups.groups || []);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();

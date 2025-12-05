@@ -65,7 +65,7 @@ class DnsRoutingTable extends Component<DnsRoutingTableProps> {
                 const { value } = row;
                 return (
                     <div className="logs__row" title={value}>
-                        <code style={{ fontSize: '13px' }}>{value}</code>
+                        <code style={{ fontSize: '13px', background: 'transparent', padding: 0, border: 'none' }}>{value}</code>
                     </div>
                 );
             },
@@ -153,6 +153,19 @@ class DnsRoutingTable extends Component<DnsRoutingTableProps> {
 
     render() {
         const { loading, filters, t } = this.props;
+
+        // Show empty state when no filters
+        if (!loading && filters.length === 0) {
+            return (
+                <div className="text-center p-5">
+                    <svg className="icons icon--24 mb-3 text-muted">
+                        <use xlinkHref="#list" />
+                    </svg>
+                    <p className="text-muted">{t('no_dns_routing_rules')}</p>
+                    <p className="text-muted small">{t('click_add_button_to_create_rule')}</p>
+                </div>
+            );
+        }
 
         return (
             <ReactTable

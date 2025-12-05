@@ -10,6 +10,7 @@ import (
 
 	"github.com/AdguardTeam/AdGuardHome/internal/filtering"
 	"github.com/AdguardTeam/dnsproxy/proxy"
+	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/AdguardTeam/golibs/netutil"
 	"github.com/miekg/dns"
 )
@@ -585,6 +586,33 @@ func (s *Server) dhcpHostFromRequest(q *dns.Question) (reqHost string) {
 
 // setCustomUpstream sets custom upstream settings in pctx, if necessary.
 func (s *Server) setCustomUpstream(ctx context.Context, pctx *proxy.DNSContext, clientID string) {
+	// First, check DNS routing rules (highest priority)
+	if s.dnsRouter != nil && len(pctx.Req.Question) > 0 {
+		domain := pctx.Req.Question[0].Name
+		if upstreamGroup, matched := s.dnsRouter.Match(ctx, domain); matched {
+			s.logger.DebugContext(
+				ctx,
+				"dns routing matched",
+				"domain", domain,
+				"upstream_group", upstreamGroup,
+			)
+			
+			// Get upstream config for the matched group
+			customUpsConf := s.getCustomUpstreamConfigForGroup(ctx, upstreamGroup)
+			if customUpsConf != nil {
+				pctx.CustomUpstreamConfig = customUpsConf
+				return
+			}
+			
+			s.logger.WarnContext(
+				ctx,
+				"upstream group not found",
+				"upstream_group", upstreamGroup,
+			)
+		}
+	}
+	
+	// Then, check client-specific upstreams
 	if !pctx.Addr.IsValid() || s.conf.ClientsContainer == nil {
 		return
 	}
@@ -601,6 +629,99 @@ func (s *Server) setCustomUpstream(ctx context.Context, pctx *proxy.DNSContext, 
 
 		pctx.CustomUpstreamConfig = upsConf
 	}
+}
+
+// getCustomUpstreamConfigForGroup returns the custom upstream configuration for a given upstream group ID.
+// It looks up the group in the global configuration and creates a proxy.CustomUpstreamConfig.
+func (s *Server) getCustomUpstreamConfigForGroup(ctx context.Context, groupID string) *proxy.CustomUpstreamConfig {
+	// Get upstream group getter from config
+	if s.conf.UpstreamGroupGetter == nil {
+		s.logger.DebugContext(ctx, "upstream group getter not configured")
+		return nil
+	}
+	
+	group := s.conf.UpstreamGroupGetter(groupID)
+	if group == nil {
+		s.logger.DebugContext(ctx, "upstream group not found", "group_id", groupID)
+		return nil
+	}
+	
+	s.logger.InfoContext(ctx, "using upstream group for DNS routing",
+		"group_id", groupID,
+		"group_name", group.Name,
+		"upstreams_count", len(group.UpstreamDNS),
+	)
+	
+	// Create upstream options
+	// Note: Bootstrap is handled by the upstream library internally
+	opts := &upstream.Options{
+		Logger:             s.baseLogger.With("upstream_group", groupID),
+		Timeout:            s.conf.UpstreamTimeout,
+		PreferIPv6:         s.conf.BootstrapPreferIPv6,
+		InsecureSkipVerify: false,
+	}
+	
+	// Set bootstrap if configured
+	if len(group.BootstrapDNS) > 0 {
+		// Parse bootstrap resolvers
+		bootResolvers := make([]upstream.Resolver, 0, len(group.BootstrapDNS))
+		for _, bootAddr := range group.BootstrapDNS {
+			bootRes, err := upstream.NewUpstreamResolver(bootAddr, nil)
+			if err != nil {
+				s.logger.WarnContext(ctx, "invalid bootstrap address",
+					"address", bootAddr,
+					"error", err,
+				)
+				continue
+			}
+			bootResolvers = append(bootResolvers, bootRes)
+		}
+		if len(bootResolvers) > 0 {
+			opts.Bootstrap = bootResolvers[0] // Use first bootstrap resolver
+		}
+	}
+
+	// Parse upstream configuration
+	uc, err := proxy.ParseUpstreamsConfig(group.UpstreamDNS, opts)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "parsing upstreams for group",
+			"group_id", groupID,
+			"error", err,
+		)
+		return nil
+	}
+
+	// Parse fallback upstreams if configured
+	if len(group.FallbackDNS) > 0 {
+		fallbackUC, err := proxy.ParseUpstreamsConfig(group.FallbackDNS, opts)
+		if err != nil {
+			s.logger.ErrorContext(ctx, "parsing fallback upstreams for group",
+				"group_id", groupID,
+				"error", err,
+			)
+			// Continue without fallback
+		} else {
+			// Merge fallback upstreams
+			uc.Upstreams = append(uc.Upstreams, fallbackUC.Upstreams...)
+			_ = fallbackUC.Close()
+		}
+	}
+
+	// Create custom upstream config with cache
+	// The 4th parameter is for optimistic cache
+	customConf := proxy.NewCustomUpstreamConfig(
+		uc,
+		s.conf.CacheEnabled,
+		int(s.conf.CacheSize),
+		s.conf.CacheOptimistic,
+	)
+
+	s.logger.DebugContext(ctx, "created custom upstream config for group",
+		"group_id", groupID,
+		"upstreams", len(uc.Upstreams),
+	)
+
+	return customConf
 }
 
 // Apply filtering logic after we have received response from upstream servers

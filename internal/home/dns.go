@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardHome/internal/agh"
@@ -18,6 +20,8 @@ import (
 	"github.com/AdguardTeam/AdGuardHome/internal/aghnet"
 	"github.com/AdguardTeam/AdGuardHome/internal/client"
 	"github.com/AdguardTeam/AdGuardHome/internal/dnsforward"
+	"github.com/AdguardTeam/AdGuardHome/internal/dnsrouting"
+	"github.com/AdguardTeam/AdGuardHome/internal/dnsroutingfiles"
 	"github.com/AdguardTeam/AdGuardHome/internal/filtering"
 	"github.com/AdguardTeam/AdGuardHome/internal/querylog"
 	"github.com/AdguardTeam/AdGuardHome/internal/stats"
@@ -51,6 +55,7 @@ func initDNS(
 	httpReg aghhttp.Registrar,
 	statsDir string,
 	querylogDir string,
+	workDir string,
 ) (err error) {
 	// Ensure a default upstream group exists before initializing DNS server
 	ensureDefaultGroup(ctx, baseLogger.With(slogutil.KeyPrefix, "upstream_groups"))
@@ -103,10 +108,23 @@ func initDNS(
 		return fmt.Errorf("init querylog: %w", err)
 	}
 
+	// Set up DNS routing rules update callback
+	config.Filtering.OnDnsRoutingRulesUpdated = func(filterID int64, upstreamGroup string, priority int, rules []interface{}) {
+		if globalContext.dnsServer != nil {
+			globalContext.dnsServer.UpdateDnsRoutingRules(filterID, upstreamGroup, priority, rules)
+		}
+	}
+	
 	globalContext.filters, err = filtering.New(config.Filtering, nil)
 	if err != nil {
 		// Don't wrap the error, since it's informative enough as is.
 		return err
+	}
+
+	// Initialize DNS routing file manager
+	err = initDnsRoutingFileManager(ctx, baseLogger, workDir, confModifier)
+	if err != nil {
+		return fmt.Errorf("init dns routing file manager: %w", err)
 	}
 
 	return initDNSServer(
@@ -265,6 +283,99 @@ func newServerConfig(
 			}
 			break
 		}
+	}
+	
+	// Set up custom domain rules callbacks
+	fwdConf.CustomDomainRulesGetter = func() []dnsforward.CustomDomainRuleConfig {
+		config.RLock()
+		defer config.RUnlock()
+		
+		rules := make([]dnsforward.CustomDomainRuleConfig, len(config.DNS.CustomDomainRules))
+		for i, rule := range config.DNS.CustomDomainRules {
+			rules[i] = dnsforward.CustomDomainRuleConfig{
+				Domain:        rule.Domain,
+				MatchType:     rule.MatchType,
+				UpstreamGroup: rule.UpstreamGroup,
+				Enabled:       rule.Enabled,
+			}
+		}
+		return rules
+	}
+	
+	fwdConf.CustomDomainRulesSetter = func(rules []dnsforward.CustomDomainRuleConfig) {
+		config.Lock()
+		defer config.Unlock()
+		
+		config.DNS.CustomDomainRules = make([]CustomDomainRule, len(rules))
+		for i, rule := range rules {
+			config.DNS.CustomDomainRules[i] = CustomDomainRule{
+				Domain:        rule.Domain,
+				MatchType:     rule.MatchType,
+				UpstreamGroup: rule.UpstreamGroup,
+				Enabled:       rule.Enabled,
+			}
+		}
+	}
+	
+	// Set up upstream group getter
+	fwdConf.UpstreamGroupGetter = func(groupID string) *dnsforward.UpstreamGroupConfig {
+		config.RLock()
+		defer config.RUnlock()
+		
+		for _, group := range config.DNS.UpstreamGroups {
+			if group.ID == groupID && group.Enabled {
+				return &dnsforward.UpstreamGroupConfig{
+					ID:           group.ID,
+					Name:         group.Name,
+					Enabled:      group.Enabled,
+					UpstreamDNS:  group.UpstreamDNS,
+					FallbackDNS:  group.FallbackDNS,
+					BootstrapDNS: group.BootstrapDNS,
+				}
+			}
+		}
+		return nil
+	}
+	
+	// Set up DNS routing rules getter
+	fwdConf.DnsRoutingRulesGetter = func() []dnsforward.DnsRoutingRuleConfig {
+		config.RLock()
+		defer config.RUnlock()
+		
+		// Get DNS routing rules from Filters array (marked with DnsRouting=true)
+		var rules []dnsforward.DnsRoutingRuleConfig
+		for _, filter := range config.Filters {
+			if filter.DnsRouting && filter.Enabled {
+				rules = append(rules, dnsforward.DnsRoutingRuleConfig{
+					ID:            int64(filter.ID),
+					Enabled:       filter.Enabled,
+					URL:           filter.URL,
+					Name:          filter.Name,
+					UpstreamGroup: filter.UpstreamGroup,
+					Priority:      filter.Priority,
+					RulesCount:    filter.RulesCount,
+					LastUpdated:   filter.LastUpdated.Format(time.RFC3339),
+				})
+			}
+		}
+		
+		// Also get from DnsRoutingRules array if it exists
+		for _, rule := range config.DnsRoutingRules {
+			if rule.Enabled {
+				rules = append(rules, dnsforward.DnsRoutingRuleConfig{
+					ID:            rule.ID,
+					Enabled:       rule.Enabled,
+					URL:           rule.URL,
+					Name:          rule.Name,
+					UpstreamGroup: rule.UpstreamGroup,
+					Priority:      rule.Priority,
+					RulesCount:    rule.RulesCount,
+					LastUpdated:   rule.LastUpdated,
+				})
+			}
+		}
+		
+		return rules
 	}
 	
 	fwdConf.ClientsContainer = clientsContainer
@@ -519,6 +630,13 @@ func closeDNSServer(ctx context.Context) {
 		globalContext.filters.Close()
 	}
 
+	if globalContext.dnsRoutingFileManager != nil {
+		err := globalContext.dnsRoutingFileManager.Close()
+		if err != nil {
+			log.Error("closing dns routing file manager: %s", err)
+		}
+	}
+
 	if globalContext.stats != nil {
 		err := globalContext.stats.Close()
 		if err != nil {
@@ -581,4 +699,249 @@ func checkDir(path string) (err error) {
 	}
 
 	return nil
+}
+
+// initDnsRoutingFileManager initializes the DNS routing file manager.
+func initDnsRoutingFileManager(ctx context.Context, baseLogger *slog.Logger, workDir string, confModifier agh.ConfigModifier) (err error) {
+	if workDir == "" {
+		workDir = "."
+	}
+
+	fmConfig := dnsroutingfiles.Config{
+		DataDir: workDir,
+		Logger:  baseLogger.With(slogutil.KeyPrefix, "dns_routing_files"),
+		HTTPClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+		OnRouterUpdate: func(ctx context.Context) error {
+			// Reload DNS router when rules change
+			// This callback is called WITHOUT holding any File Manager locks
+			if globalContext.dnsServer != nil {
+				// Use a goroutine to avoid blocking and potential deadlocks
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							baseLogger.ErrorContext(ctx, "panic in router reload", "panic", r)
+						}
+					}()
+					reloadDnsRoutingRules(ctx, baseLogger)
+				}()
+			}
+			return nil
+		},
+		GetRuleConfig: func(ruleID int64) *dnsroutingfiles.DomainListRule {
+			// Get rule config from the config file
+			config.RLock()
+			defer config.RUnlock()
+
+			for _, filter := range config.Filtering.Filters {
+				if int64(filter.ID) == ruleID && filter.DnsRouting {
+					return &dnsroutingfiles.DomainListRule{
+						ID:             int64(filter.ID),
+						Name:           filter.Name,
+						URL:            filter.URL,
+						UpstreamGroup:  filter.UpstreamGroup,
+						Priority:       filter.Priority,
+						Enabled:        filter.Enabled,
+						RulesCount:     filter.RulesCount,
+						LastUpdated:    filter.LastUpdated,
+						UpdateInterval: filter.UpdateInterval,
+					}
+				}
+			}
+			return nil
+		},
+		SaveRuleConfig: func(ctx context.Context, rule *dnsroutingfiles.DomainListRule) error {
+			// Update config file with new values
+			config.Lock()
+			for i := range config.Filtering.Filters {
+				if int64(config.Filtering.Filters[i].ID) == rule.ID && config.Filtering.Filters[i].DnsRouting {
+					config.Filtering.Filters[i].RulesCount = rule.RulesCount
+					config.Filtering.Filters[i].LastUpdated = rule.LastUpdated
+					break
+				}
+			}
+			config.Unlock()
+
+			// Save config to disk using confModifier
+			confModifier.Apply(ctx)
+			return nil
+		},
+	}
+
+	globalContext.dnsRoutingFileManager, err = dnsroutingfiles.NewManager(fmConfig)
+	if err != nil {
+		return fmt.Errorf("creating dns routing file manager: %w", err)
+	}
+
+	// Load all persisted rules
+	if err = globalContext.dnsRoutingFileManager.LoadAll(ctx); err != nil {
+		return fmt.Errorf("loading dns routing rules: %w", err)
+	}
+
+	// Initialize the atomic ID counter with the maximum existing ID
+	config.RLock()
+	var maxID int64
+	for _, filter := range config.Filtering.Filters {
+		if int64(filter.ID) > maxID {
+			maxID = int64(filter.ID)
+		}
+	}
+	config.RUnlock()
+	nextDnsRoutingRuleID.Store(maxID)
+
+	// Load rules into router (this will be called again after DNS server is initialized)
+	// Note: This is safe to call even if dnsServer is nil, it will just return early
+	reloadDnsRoutingRules(ctx, baseLogger)
+
+	// Start auto-updates for all rules
+	if fm, ok := globalContext.dnsRoutingFileManager.(interface{ StartAutoUpdates() }); ok {
+		fm.StartAutoUpdates()
+	}
+
+	return nil
+}
+
+// reloadDnsRoutingRules reloads all DNS routing rules from File Manager into the router.
+func reloadDnsRoutingRules(ctx context.Context, baseLogger *slog.Logger) {
+	if globalContext.dnsServer == nil {
+		return
+	}
+
+	if globalContext.dnsRoutingFileManager == nil {
+		return
+	}
+
+	baseLogger.InfoContext(ctx, "reloading DNS routing rules from config file")
+
+	// Get all domain list rules from config file (source of truth)
+	config.RLock()
+	filters := config.Filtering.Filters
+	config.RUnlock()
+
+	// Load each domain list rule file and update router
+	for _, filter := range filters {
+		if !filter.DnsRouting {
+			continue
+		}
+		
+		// Handle disabled rules by removing them from router
+		if !filter.Enabled {
+			// Remove the source from router if it exists
+			if globalContext.dnsServer != nil {
+				globalContext.dnsServer.RemoveDnsRoutingSource(int64(filter.ID))
+			}
+			baseLogger.DebugContext(ctx, "removed disabled rule from router",
+				"id", filter.ID,
+				"name", filter.Name)
+			continue
+		}
+
+		// Get file path
+		filePath := globalContext.dnsRoutingFileManager.GetRuleFilePath(int64(filter.ID))
+
+		// Read rule file (already in AdGuard format)
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				baseLogger.WarnContext(ctx, "rule file does not exist, skipping",
+					"id", filter.ID,
+					"path", filePath)
+			} else {
+				baseLogger.ErrorContext(ctx, "failed to read rule file",
+					"id", filter.ID,
+					"path", filePath,
+					"error", err)
+			}
+			continue
+		}
+
+		// Parse AdGuard format rules with improved error handling
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		rulesInterface := make([]interface{}, 0, len(lines))
+		invalidCount := 0
+		
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "!") || strings.HasPrefix(line, "#") {
+				continue
+			}
+
+			// Parse AdGuard format to determine match type
+			var domain string
+			var matchType string
+			valid := true
+
+			if strings.HasPrefix(line, "||") && strings.HasSuffix(line, "^") {
+				// ||example.com^ -> DOMAIN-SUFFIX
+				domain = strings.TrimSuffix(strings.TrimPrefix(line, "||"), "^")
+				matchType = "DOMAIN-SUFFIX"
+			} else if strings.HasPrefix(line, "|") && strings.HasSuffix(line, "|") {
+				// |example.com| -> DOMAIN
+				domain = strings.TrimSuffix(strings.TrimPrefix(line, "|"), "|")
+				matchType = "DOMAIN"
+			} else if strings.HasPrefix(line, "@@||") {
+				// @@||example.com^ -> Allowlist rule (skip for DNS routing)
+				continue
+			} else if strings.Contains(line, "$") {
+				// Rules with modifiers (skip for DNS routing)
+				continue
+			} else if strings.HasPrefix(line, "/") && strings.HasSuffix(line, "/") {
+				// Regex rules (skip for DNS routing)
+				continue
+			} else {
+				// Plain domain or keyword -> DOMAIN-KEYWORD
+				domain = line
+				matchType = "DOMAIN-KEYWORD"
+			}
+
+			// Validate domain is not empty
+			if domain == "" {
+				invalidCount++
+				continue
+			}
+
+			if valid {
+				// Create ParsedRule
+				parsedRule := dnsrouting.ParsedRule{
+					Domain:    domain,
+					MatchType: matchType,
+				}
+				rulesInterface = append(rulesInterface, parsedRule)
+			}
+		}
+		
+		if invalidCount > 0 {
+			baseLogger.DebugContext(ctx, "skipped invalid rules",
+				"id", filter.ID,
+				"invalid_count", invalidCount)
+		}
+
+		// Update router with these rules
+		globalContext.dnsServer.UpdateDnsRoutingRules(
+			int64(filter.ID),
+			filter.UpstreamGroup,
+			filter.Priority,
+			rulesInterface,
+		)
+
+		baseLogger.InfoContext(ctx, "loaded domain list rule into router",
+			"id", filter.ID,
+			"name", filter.Name,
+			"rules_count", len(rulesInterface))
+	}
+
+	// Reload custom rules
+	globalContext.dnsServer.ReloadDnsRouter(ctx)
+
+	// Count DNS routing rules
+	dnsRoutingCount := 0
+	for _, filter := range filters {
+		if filter.DnsRouting {
+			dnsRoutingCount++
+		}
+	}
+
+	baseLogger.InfoContext(ctx, "DNS routing rules reload complete",
+		"domain_list_rules", dnsRoutingCount)
 }

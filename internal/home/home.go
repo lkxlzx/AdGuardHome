@@ -29,6 +29,7 @@ import (
 	"github.com/AdguardTeam/AdGuardHome/internal/arpdb"
 	"github.com/AdguardTeam/AdGuardHome/internal/dhcpd"
 	"github.com/AdguardTeam/AdGuardHome/internal/dnsforward"
+	"github.com/AdguardTeam/AdGuardHome/internal/dnsroutingfiles"
 	"github.com/AdguardTeam/AdGuardHome/internal/filtering"
 	"github.com/AdguardTeam/AdGuardHome/internal/filtering/hashprefix"
 	"github.com/AdguardTeam/AdGuardHome/internal/filtering/safesearch"
@@ -61,6 +62,9 @@ type homeContext struct {
 
 	filters *filtering.DNSFilter // DNS filtering module
 	web     *webAPI              // Web (HTTP, HTTPS) module
+
+	// dnsRoutingFileManager manages DNS routing rule files
+	dnsRoutingFileManager dnsroutingfiles.Manager
 
 	// etcHosts contains IP-hostname mappings taken from the OS-specific hosts
 	// configuration files, for example /etc/hosts.
@@ -421,6 +425,7 @@ func setupDNSFilteringConf(
 	conf.WhitelistFilters = slices.Clone(config.WhitelistFilters)
 	conf.UserRules = slices.Clone(config.UserRules)
 	conf.HTTPClient = httpClient(tlsMgr)
+	conf.DnsRoutingFileManager = globalContext.dnsRoutingFileManager
 
 	cacheTime := time.Duration(conf.CacheTime) * time.Minute
 
@@ -809,7 +814,7 @@ func runDNSServer(
 	querylogDir string,
 	httpReg *aghhttp.DefaultRegistrar,
 ) {
-	err := initDNS(ctx, slogLogger, tlsMgr, confModifier, httpReg, statsDir, querylogDir)
+	err := initDNS(ctx, slogLogger, tlsMgr, confModifier, httpReg, statsDir, querylogDir, confModifier.workDir)
 	fatalOnError(err)
 
 	tlsMgr.start(ctx)
