@@ -28,7 +28,7 @@ require (
 	// own code for that.  Perhaps, use gopacket.
 	github.com/mdlayher/raw v0.1.0
 	github.com/miekg/dns v1.1.68
-	github.com/quic-go/quic-go v0.55.0
+	github.com/quic-go/quic-go v0.56.0
 	github.com/stretchr/testify v1.11.1
 	github.com/ti-mo/netfilter v0.5.3
 	go.etcd.io/bbolt v1.4.3
@@ -40,6 +40,8 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	howett.net/plist v1.0.1
 )
+
+require gopkg.in/yaml.v3 v3.0.1
 
 require (
 	cloud.google.com/go v0.123.0 // indirect
@@ -86,7 +88,6 @@ require (
 	go.opentelemetry.io/otel v1.38.0 // indirect
 	go.opentelemetry.io/otel/metric v1.38.0 // indirect
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
-	go.uber.org/mock v0.6.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20251113190631-e25ba8c21ef6 // indirect
 	golang.org/x/mod v0.30.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
@@ -100,13 +101,15 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251111163417-95abcf5c77ba // indirect
 	google.golang.org/grpc v1.77.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	honnef.co/go/tools v0.6.1 // indirect
 	mvdan.cc/editorconfig v0.3.0 // indirect
 	mvdan.cc/gofumpt v0.9.2 // indirect
 	mvdan.cc/sh/v3 v3.12.0 // indirect
 	mvdan.cc/unparam v0.0.0-20251027182757-5beb8c8f8f15 // indirect
 )
+
+// Replace dnsproxy with custom fork
+replace github.com/AdguardTeam/dnsproxy => github.com/lkxlzx/dnsproxy v0.79.2
 
 // NOTE:  Keep in sync with .gitignore.
 ignore (
