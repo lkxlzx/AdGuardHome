@@ -1,0 +1,34 @@
+﻿DNS Benchmark Test Report
+Generated: 2025-12-06 10:46:55
+Query Count: 30 per server
+
+=== Cloudflare (1.1.1.1) ===
+Min:     280.64 ms
+Max:     11052.7 ms
+Average: 724.41 ms
+Median:  307.31 ms
+P95:     718.23 ms
+P99:     11052.7 ms
+Success: 100%
+
+=== Google (8.8.8.8) ===
+Min:     265.76 ms
+Max:     422.59 ms
+Average: 341.52 ms
+Median:  326.33 ms
+P95:     411.21 ms
+P99:     422.59 ms
+Success: 100%
+
+=== Quad9 (9.9.9.9) ===
+Min:     263.18 ms
+Max:     431.41 ms
+Average: 322.62 ms
+Median:  297.19 ms
+P95:     423.28 ms
+P99:     431.41 ms
+Success: 100%
+
+=== Winner ===
+Fastest: Quad9 (9.9.9.9)
+Average: 322.62 ms

@@ -1,0 +1,100 @@
+feat(dns-routing): 实现DNS路由后端API对接 (v10.3)
+
+## 主要变更
+
+### 数据结构扩展
+- 扩展 FilterYAML 结构，添加 DNS 路由相关字段
+  - DnsRouting: 标识为DNS路由过滤器
+  - UpstreamGroup: 目标上游组ID
+  - UpdateInterval: 更新间隔（分钟）
+  - Priority: 匹配优先级
+
+- 添加 CustomDomainRule 结构，支持自定义域名路由规则
+  - Domain: 域名
+  - MatchType: 匹配类型 (DOMAIN/DOMAIN-SUFFIX/DOMAIN-KEYWORD)
+  - UpstreamGroup: 上游组ID
+  - Enabled: 是否启用
+
+### API 功能增强
+
+#### 1. GET /control/filtering/status
+- 新增返回字段 `dns_routing_filters`
+- 自动将DNS路由规则从普通过滤器中分离
+
+#### 2. POST /control/filtering/add_url
+- 支持接收 DNS 路由相关字段
+- 创建DNS路由规则时保存所有相关属性
+
+#### 3. POST /control/filtering/set_url
+- 支持更新 DNS 路由字段
+- 修改上游组、优先级等属性时触发重启
+
+#### 4. POST /control/filtering/remove_url
+- 支持通过 dns_routing 标识删除DNS路由规则
+- 精确匹配URL和dns_routing标志
+
+#### 5. POST /control/filtering/refresh
+- 支持刷新DNS路由过滤器
+- 新增按URL刷新单个过滤器功能
+- 实现 tryRefreshSingleFilter 函数
+
+### 配置文件支持
+- 在 dnsConfig 中添加 CustomDomainRules 字段
+- 支持自定义域名规则的持久化存储
+
+## 技术细节
+
+### 修改的文件
+- internal/filtering/filter.go
+  - 扩展 FilterYAML 结构
+  - 添加 tryRefreshSingleFilter 函数
+  - 更新 filterSetProperties 以支持DNS路由字段
+
+- internal/filtering/http.go
+  - 扩展 filterAddJSON 结构
+  - 扩展 filterURLReqData 结构
+  - 扩展 filterJSON 结构
+  - 修改 filterToJSON 函数
+  - 修改 handleFilteringStatus 函数
+  - 修改 handleFilteringAddURL 函数
+  - 修改 handleFilteringRemoveURL 函数
+  - 修改 handleFilteringSetURL 函数
+  - 修改 handleFilteringRefresh 函数
+
+- internal/home/config.go
+  - 添加 CustomDomainRule 结构
+  - 在 dnsConfig 中添加 CustomDomainRules 字段
+
+## 前后端对接
+
+### 数据映射
+- 前端字段名与后端完全匹配
+- JSON tag 正确设置
+- 时间格式使用 ISO8601 (RFC3339)
+
+### API 兼容性
+- 所有新增字段都是可选的
+- 向后兼容现有功能
+- 不影响普通过滤器的使用
+
+## 测试状态
+- ✅ Go 编译通过
+- ✅ 语法检查通过
+- ✅ 代码格式化完成
+- ⏳ 单元测试待添加
+- ⏳ 集成测试待添加
+
+## 下一步工作
+1. 实现 DNS 配置 API 的扩展 (GET/POST /control/dns_info)
+2. 实现 DNS 路由匹配引擎
+3. 实现规则文件解析器
+4. 添加单元测试和集成测试
+5. 实现域名匹配逻辑 (DOMAIN/DOMAIN-SUFFIX/DOMAIN-KEYWORD)
+
+## 相关文档
+- .kiro/specs/dns-routing/BACKEND_INTEGRATION.md
+- .kiro/specs/dns-routing/FRONTEND_REVIEW.md
+
+---
+分支: v10.3
+状态: API层完成，核心引擎待实现

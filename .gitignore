@@ -52,10 +52,17 @@ test-*.ps1
 # Temporary files
 COMMIT_MESSAGE.txt
 *.backup
+migration_*.txt
+dnsrouting.test.exe
+test_build.exe
+test_simple.exe
+
+# Performance profiling files
+*.prof
+*-analysis.txt
 
 # Release binaries (too large for git, use GitHub Releases)
-/release/*.exe
-/release/AdGuardHome_*
+/release/
 
 # Archive documents
 /docs/archive/

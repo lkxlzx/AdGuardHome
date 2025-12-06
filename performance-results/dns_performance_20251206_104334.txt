@@ -1,0 +1,42 @@
+﻿DNS Performance Test Report
+Generated: 2025-12-06 10:43:34
+Query Count: 50
+DNS Server: 127.0.0.1:53
+
+=== Cold Cache Statistics ===
+Min:     0 ms
+Max:     0 ms
+Average: 0 ms
+Median:  0 ms
+P95:     0 ms
+P99:     0 ms
+Success: 0%
+
+=== Warm Cache Statistics ===
+Min:     0 ms
+Max:     0 ms
+Average: 0 ms
+Median:  0 ms
+P95:     0 ms
+P99:     0 ms
+Success: 0%
+
+=== Hot Cache Statistics ===
+Min:     0 ms
+Max:     0 ms
+Average: 0 ms
+Median:  0 ms
+P95:     0 ms
+P99:     0 ms
+Success: 0%
+
+=== Performance Improvement ===
+Average: %
+Median:  %
+P95:     %
+
+=== Throughput ===
+Cold Cache:  QPS
+Warm Cache:  QPS
+Hot Cache:   QPS
+Improvement: %
