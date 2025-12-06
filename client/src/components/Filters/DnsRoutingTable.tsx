@@ -154,19 +154,6 @@ class DnsRoutingTable extends Component<DnsRoutingTableProps> {
     render() {
         const { loading, filters, t } = this.props;
 
-        // Show empty state when no filters
-        if (!loading && filters.length === 0) {
-            return (
-                <div className="text-center p-5">
-                    <svg className="icons icon--24 mb-3 text-muted">
-                        <use xlinkHref="#list" />
-                    </svg>
-                    <p className="text-muted">{t('no_dns_routing_rules')}</p>
-                    <p className="text-muted small">{t('click_add_button_to_create_rule')}</p>
-                </div>
-            );
-        }
-
         return (
             <ReactTable
                 data={filters}
@@ -174,7 +161,7 @@ class DnsRoutingTable extends Component<DnsRoutingTableProps> {
                 showPagination={filters.length > 10}
                 defaultPageSize={10}
                 loading={loading}
-                minRows={6}
+                minRows={7}
                 className="-striped -highlight card-table-overflow"
                 ofText="/"
                 previousText={t('previous_btn')}
@@ -182,7 +169,15 @@ class DnsRoutingTable extends Component<DnsRoutingTableProps> {
                 pageText={t('page_table_footer_text')}
                 rowsText={t('rows_table_footer_text')}
                 loadingText={t('loading_table_status')}
-                noDataText={t('no_routing_rule_added')}
+                noDataText={
+                    <div className="text-center p-4">
+                        <svg className="icons icon--24 mb-3 text-muted">
+                            <use xlinkHref="#list" />
+                        </svg>
+                        <p className="text-muted mb-1">{t('no_dns_routing_rules')}</p>
+                        <p className="text-muted small mb-0">{t('click_add_button_to_create_rule')}</p>
+                    </div>
+                }
             />
         );
     }
