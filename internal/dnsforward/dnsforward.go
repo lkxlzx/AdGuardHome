@@ -687,8 +687,8 @@ func (s *Server) initializeDnsRouter(ctx context.Context) {
 
 // loadRoutingRuleFile loads and parses a routing rule file from disk.
 func (s *Server) loadRoutingRuleFile(ctx context.Context, filterID int64, upstreamGroup string, priority int) []dnsrouting.Rule {
-	// The file should be at data/filters/{filterID}.txt
-	filePath := fmt.Sprintf("data/filters/%d.txt", filterID)
+	// The file should be at data/dns_routing_rules/{filterID}.txt
+	filePath := fmt.Sprintf("data/dns_routing_rules/%d.txt", filterID)
 	
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -745,9 +745,15 @@ func (s *Server) loadRoutingRuleFile(ctx context.Context, filterID int64, upstre
 }
 
 // ReloadDnsRouter reinitializes the DNS router with current configuration.
-// This is called when custom domain rules are updated.
+// This is called when custom domain rules or rule files are updated.
 func (s *Server) ReloadDnsRouter(ctx context.Context) {
 	s.logger.InfoContext(ctx, "reloading DNS router")
+	
+	// Get routing rules from configuration
+	var rules []DnsRoutingRuleConfig
+	if s.conf.DnsRoutingRulesGetter != nil {
+		rules = s.conf.DnsRoutingRulesGetter()
+	}
 	
 	// Get current custom domain rules
 	var customRules []CustomDomainRuleConfig
@@ -766,7 +772,19 @@ func (s *Server) ReloadDnsRouter(ctx context.Context) {
 		} else {
 			s.dnsRouter = dnsrouting.NewRouter(s.logger)
 		}
+	} else {
+		// Clear routing cache when reloading
+		s.dnsRouter.ClearCache()
+		s.logger.InfoContext(ctx, "cleared routing cache")
 	}
+	
+	// Also clear upstream config cache to ensure updated groups are used
+	s.upstreamConfigMu.Lock()
+	if len(s.upstreamConfigCache) > 0 {
+		s.upstreamConfigCache = make(map[string]*proxy.CustomUpstreamConfig)
+		s.logger.InfoContext(ctx, "cleared upstream config cache")
+	}
+	s.upstreamConfigMu.Unlock()
 	
 	// Convert custom domain rules to dnsrouting.Rule format
 	routingRules := make([]dnsrouting.Rule, 0, len(customRules))
@@ -783,8 +801,53 @@ func (s *Server) ReloadDnsRouter(ctx context.Context) {
 	// Update custom rules in router
 	s.dnsRouter.SetCustomRules(routingRules)
 	
-	s.logger.InfoContext(ctx, "DNS router reloaded",
-		"custom_rules", len(customRules))
+	// Reload rule files
+	totalRulesLoaded := 0
+	for _, rule := range rules {
+		if !rule.Enabled {
+			s.logger.DebugContext(ctx, "skipping disabled rule", "name", rule.Name)
+			continue
+		}
+		
+		// Load and parse the rule file if it exists
+		parsedRules := s.loadRoutingRuleFile(ctx, rule.ID, rule.UpstreamGroup, rule.Priority)
+		
+		// Create rule source
+		source := &dnsrouting.RuleSource{
+			ID:            rule.ID,
+			Name:          rule.Name,
+			URL:           rule.URL,
+			UpstreamGroup: rule.UpstreamGroup,
+			Priority:      rule.Priority,
+			Enabled:       rule.Enabled,
+			Rules:         parsedRules,
+			RulesCount:    len(parsedRules),
+			LastUpdated:   rule.LastUpdated,
+		}
+		
+		// Try to update existing source, if not found, add it
+		err := s.dnsRouter.UpdateSource(source)
+		if err != nil {
+			// Source doesn't exist, add it
+			err = s.dnsRouter.AddSource(source)
+			if err != nil {
+				s.logger.ErrorContext(ctx, "adding routing source",
+					"name", rule.Name,
+					"error", err)
+				continue
+			}
+		}
+		
+		totalRulesLoaded += len(parsedRules)
+		s.logger.DebugContext(ctx, "reloaded DNS routing rule file",
+			"name", rule.Name,
+			"rules_count", len(parsedRules))
+	}
+	
+	s.logger.InfoContext(ctx, "DNS router reloaded successfully",
+		"custom_rules", len(customRules),
+		"rule_files", len(rules),
+		"total_rules_loaded", totalRulesLoaded)
 }
 
 // RemoveDnsRoutingSource removes a DNS routing source from the router.
@@ -801,6 +864,10 @@ func (s *Server) RemoveDnsRoutingSource(filterID int64) {
 			"filter_id", filterID)
 		return
 	}
+	
+	// Clear routing cache after removing source
+	s.dnsRouter.ClearCache()
+	s.logger.InfoContext(ctx, "cleared routing cache after removing source")
 	
 	s.logger.InfoContext(ctx, "removed DNS routing source",
 		"filter_id", filterID)

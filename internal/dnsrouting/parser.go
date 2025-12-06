@@ -116,14 +116,15 @@ func (p *parser) detectFormatFromContent(content []byte) RuleFormat {
 		}
 	}
 
-	// Check for AdGuard format (starts with ! or ||)
+	// Check for AdGuard format (starts with !, ||, or |)
 	lines := strings.Split(contentStr, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		if strings.HasPrefix(line, "!") || strings.HasPrefix(line, "||") {
+		// AdGuard format: ||domain^ (suffix), |domain| (exact), or ! (comment)
+		if strings.HasPrefix(line, "!") || strings.HasPrefix(line, "||") || strings.HasPrefix(line, "|") {
 			return RuleFormatAdGuard
 		}
 		break
@@ -311,12 +312,22 @@ func (p *parser) parseAdGuard(content []byte) (*ParseResult, error) {
 
 // parseAdGuardRule parses a single AdGuard rule line.
 func (p *parser) parseAdGuardRule(line string) *ParsedRule {
-	// AdGuard format: ||example.com^ or |example.com^
-	line = strings.TrimPrefix(line, "||")
-	line = strings.TrimPrefix(line, "|")
-	line = strings.TrimSuffix(line, "^")
-	line = strings.TrimSuffix(line, "$")
-
+	// Determine match type based on format
+	var matchType string
+	
+	// |domain| format = exact match (DOMAIN)
+	if strings.HasPrefix(line, "|") && strings.HasSuffix(line, "|") && !strings.HasPrefix(line, "||") {
+		line = strings.TrimPrefix(line, "|")
+		line = strings.TrimSuffix(line, "|")
+		matchType = "DOMAIN"
+	} else {
+		// ||domain^ format = suffix match (DOMAIN-SUFFIX)
+		line = strings.TrimPrefix(line, "||")
+		line = strings.TrimPrefix(line, "|")
+		line = strings.TrimSuffix(line, "^")
+		matchType = "DOMAIN-SUFFIX"
+	}
+	
 	// Remove modifiers
 	if idx := strings.Index(line, "$"); idx != -1 {
 		line = line[:idx]
@@ -327,10 +338,9 @@ func (p *parser) parseAdGuardRule(line string) *ParsedRule {
 		return nil
 	}
 
-	// AdGuard rules are typically domain suffixes
 	return &ParsedRule{
 		Domain:    line,
-		MatchType: "DOMAIN-SUFFIX",
+		MatchType: matchType,
 	}
 }
 

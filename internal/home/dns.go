@@ -817,7 +817,7 @@ func reloadDnsRoutingRules(ctx context.Context, baseLogger *slog.Logger) {
 		return
 	}
 
-	baseLogger.InfoContext(ctx, "reloading DNS routing rules from config file")
+	baseLogger.DebugContext(ctx, "reloading DNS routing rules from config file")
 
 	// Get all domain list rules from config file (source of truth)
 	config.RLock()
@@ -939,14 +939,22 @@ func reloadDnsRoutingRules(ctx context.Context, baseLogger *slog.Logger) {
 	// Reload custom rules
 	globalContext.dnsServer.ReloadDnsRouter(ctx)
 
-	// Count DNS routing rules
+	// Count DNS routing rules and total rule count
 	dnsRoutingCount := 0
+	totalRulesCount := 0
+	enabledCount := 0
 	for _, filter := range filters {
 		if filter.DnsRouting {
 			dnsRoutingCount++
+			if filter.Enabled {
+				enabledCount++
+				totalRulesCount += filter.RulesCount
+			}
 		}
 	}
 
 	baseLogger.InfoContext(ctx, "DNS routing rules reload complete",
-		"domain_list_rules", dnsRoutingCount)
+		"domain_list_sources", dnsRoutingCount,
+		"enabled_sources", enabledCount,
+		"total_rules", totalRulesCount)
 }

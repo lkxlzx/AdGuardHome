@@ -202,10 +202,17 @@ func (m *fileManager) loadCustomRules(ctx context.Context) error {
 	err = json.Unmarshal(data, &rules)
 	if err == nil {
 		m.customRules = rules
-		m.config.Logger.InfoContext(ctx, "loaded custom rules from JSON",
-			"path", customRulesPath,
-			"count", len(m.customRules),
-		)
+		if len(m.customRules) > 0 {
+			m.config.Logger.InfoContext(ctx, "loaded custom rules from JSON",
+				"path", customRulesPath,
+				"count", len(m.customRules),
+			)
+		} else {
+			m.config.Logger.DebugContext(ctx, "loaded custom rules from JSON",
+				"path", customRulesPath,
+				"count", 0,
+			)
+		}
 		return nil
 	}
 
@@ -233,14 +240,18 @@ func (m *fileManager) loadCustomRules(ctx context.Context) error {
 		m.customRules = append(m.customRules, rule)
 	}
 
-	m.config.Logger.InfoContext(ctx, "loaded custom rules from legacy format",
-		"path", customRulesPath,
-		"count", len(m.customRules),
-	)
-
-	// Migrate to JSON format on next save
 	if len(m.customRules) > 0 {
+		m.config.Logger.InfoContext(ctx, "loaded custom rules from legacy format",
+			"path", customRulesPath,
+			"count", len(m.customRules),
+		)
+		// Migrate to JSON format on next save
 		m.config.Logger.InfoContext(ctx, "will migrate custom rules to JSON format on next save")
+	} else {
+		m.config.Logger.DebugContext(ctx, "loaded custom rules from legacy format",
+			"path", customRulesPath,
+			"count", 0,
+		)
 	}
 
 	return nil

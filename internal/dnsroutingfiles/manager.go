@@ -532,10 +532,15 @@ func (m *fileManager) LoadAll(ctx context.Context) error {
 		return fmt.Errorf("loading custom rules: %w", err)
 	}
 
-	m.config.Logger.InfoContext(ctx, "loaded all rules",
-		"domain_list_rules", len(m.domainListRules),
-		"custom_rules", len(m.customRules),
-	)
+	// Note: Domain list rules are now loaded from AdGuardHome.yaml by reloadDnsRoutingRules()
+	// This only loads custom rules from data/dns_routing_rules/custom_rules.txt
+	if len(m.customRules) > 0 {
+		m.config.Logger.InfoContext(ctx, "loaded custom rules from file",
+			"custom_rules", len(m.customRules),
+		)
+	} else {
+		m.config.Logger.DebugContext(ctx, "no custom rules file found or file is empty")
+	}
 
 	return nil
 }
@@ -553,7 +558,7 @@ func (m *fileManager) migrateFromOldImplementation(ctx context.Context) error {
 	
 	// Check if metadata file exists (new system already initialized)
 	metadataPath := m.getMetadataFilePath()
-	m.config.Logger.InfoContext(ctx, "checking for migration", "metadata_path", metadataPath)
+	m.config.Logger.DebugContext(ctx, "checking for migration", "metadata_path", metadataPath)
 	
 	if _, err := os.Stat(metadataPath); err == nil {
 		m.config.Logger.InfoContext(ctx, "migration skipped: metadata file exists")
@@ -644,7 +649,7 @@ func (m *fileManager) migrateFromOldImplementation(ctx context.Context) error {
 		m.config.Logger.InfoContext(ctx, "migration completed",
 			"migrated_rules", migratedCount)
 	} else {
-		m.config.Logger.InfoContext(ctx, "no DNS routing rule files found to migrate")
+		m.config.Logger.DebugContext(ctx, "no DNS routing rule files found to migrate")
 	}
 
 	// Mark migration as checked to avoid future checks

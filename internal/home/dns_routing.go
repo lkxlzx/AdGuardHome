@@ -130,6 +130,12 @@ func (web *webAPI) handleAddDnsRoutingRule(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Reload DNS router to apply new rules immediately
+	if globalContext.dnsServer != nil {
+		globalContext.dnsServer.ReloadDnsRouter(ctx)
+		l.InfoContext(ctx, "reloaded DNS router after adding rule", "rule_id", newID)
+	}
+
 	// Return response
 	response := DnsRoutingRule{
 		ID:             rule.ID,
@@ -228,6 +234,12 @@ func (web *webAPI) handleUpdateDnsRoutingRule(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Reload DNS router to apply updated rules immediately
+	if globalContext.dnsServer != nil {
+		globalContext.dnsServer.ReloadDnsRouter(ctx)
+		l.InfoContext(ctx, "reloaded DNS router after updating rule", "rule_id", req.ID)
+	}
+
 	aghhttp.WriteJSONResponseOK(ctx, l, w, r, struct{}{})
 }
 
@@ -277,6 +289,12 @@ func (web *webAPI) handleDeleteDnsRoutingRule(w http.ResponseWriter, r *http.Req
 	// Save config
 	if !web.saveConfigIfNeeded(ctx, l, r, w) {
 		return
+	}
+
+	// Reload DNS router to remove deleted rule immediately
+	if globalContext.dnsServer != nil {
+		globalContext.dnsServer.RemoveDnsRoutingSource(req.ID)
+		l.InfoContext(ctx, "removed DNS routing source after deleting rule", "rule_id", req.ID)
 	}
 
 	aghhttp.WriteJSONResponseOK(ctx, l, w, r, struct{}{})
@@ -405,6 +423,12 @@ func (web *webAPI) handleRefreshDnsRoutingRule(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Reload DNS router to apply refreshed rules immediately
+	if globalContext.dnsServer != nil {
+		globalContext.dnsServer.ReloadDnsRouter(ctx)
+		l.InfoContext(ctx, "reloaded DNS router after refreshing rules")
+	}
+
 	aghhttp.WriteJSONResponseOK(ctx, l, w, r, struct{}{})
 }
 
@@ -477,6 +501,12 @@ func (web *webAPI) handleAddCustomDomainRule(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusInternalServerError, "adding custom rule: %s", err)
 		return
+	}
+
+	// Reload DNS router to apply new custom rule immediately
+	if globalContext.dnsServer != nil {
+		globalContext.dnsServer.ReloadDnsRouter(ctx)
+		l.InfoContext(ctx, "reloaded DNS router after adding custom rule", "domain", req.Domain)
 	}
 
 	newRule := CustomDomainRule{
@@ -558,6 +588,12 @@ func (web *webAPI) handleUpdateCustomDomainRule(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Reload DNS router to apply updated custom rule immediately
+	if globalContext.dnsServer != nil {
+		globalContext.dnsServer.ReloadDnsRouter(ctx)
+		l.InfoContext(ctx, "reloaded DNS router after updating custom rule", "domain", req.Domain)
+	}
+
 	aghhttp.WriteJSONResponseOK(ctx, l, w, r, struct{}{})
 }
 
@@ -593,6 +629,12 @@ func (web *webAPI) handleDeleteCustomDomainRule(w http.ResponseWriter, r *http.R
 	if err != nil {
 		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusInternalServerError, "deleting custom rule: %s", err)
 		return
+	}
+
+	// Reload DNS router to remove deleted custom rule immediately
+	if globalContext.dnsServer != nil {
+		globalContext.dnsServer.ReloadDnsRouter(ctx)
+		l.InfoContext(ctx, "reloaded DNS router after deleting custom rule", "domain", req.Domain)
 	}
 
 	aghhttp.WriteJSONResponseOK(ctx, l, w, r, struct{}{})

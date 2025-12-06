@@ -590,13 +590,24 @@ func (s *Server) setCustomUpstream(ctx context.Context, pctx *proxy.DNSContext, 
 	if s.dnsRouter != nil && len(pctx.Req.Question) > 0 {
 		domain := pctx.Req.Question[0].Name
 		if upstreamGroup, matched := s.dnsRouter.Match(ctx, domain); matched {
-			// Removed debug logging from hot path for performance
-			// This is called on every DNS query and logging impacts QPS
+			// Add debug logging to track routing decisions
+			s.logger.InfoContext(
+				ctx,
+				"DNS routing matched",
+				"domain", domain,
+				"upstream_group", upstreamGroup,
+			)
 			
 			// Get upstream config for the matched group
 			customUpsConf := s.getCustomUpstreamConfigForGroup(ctx, upstreamGroup)
 			if customUpsConf != nil {
 				pctx.CustomUpstreamConfig = customUpsConf
+				s.logger.InfoContext(
+					ctx,
+					"applied custom upstream config",
+					"domain", domain,
+					"upstream_group", upstreamGroup,
+				)
 				return
 			}
 			
@@ -604,6 +615,7 @@ func (s *Server) setCustomUpstream(ctx context.Context, pctx *proxy.DNSContext, 
 			s.logger.WarnContext(
 				ctx,
 				"upstream group not found",
+				"domain", domain,
 				"upstream_group", upstreamGroup,
 			)
 		}
