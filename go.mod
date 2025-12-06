@@ -108,8 +108,9 @@ require (
 	mvdan.cc/unparam v0.0.0-20251027182757-5beb8c8f8f15 // indirect
 )
 
-// Replace dnsproxy with custom fork
-replace github.com/AdguardTeam/dnsproxy => github.com/lkxlzx/dnsproxy v0.79.2
+// Replace dnsproxy with local development version (in workspace)
+// For production, use: replace github.com/AdguardTeam/dnsproxy => ./vendor-dev/dnsproxy
+replace github.com/AdguardTeam/dnsproxy => ./vendor-dev/dnsproxy
 
 // NOTE:  Keep in sync with .gitignore.
 ignore (

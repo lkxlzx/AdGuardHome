@@ -66,3 +66,6 @@ test_simple.exe
 
 # Archive documents
 /docs/archive/
+
+# Local development dependencies
+/vendor-dev/
