@@ -590,12 +590,8 @@ func (s *Server) setCustomUpstream(ctx context.Context, pctx *proxy.DNSContext, 
 	if s.dnsRouter != nil && len(pctx.Req.Question) > 0 {
 		domain := pctx.Req.Question[0].Name
 		if upstreamGroup, matched := s.dnsRouter.Match(ctx, domain); matched {
-			s.logger.DebugContext(
-				ctx,
-				"dns routing matched",
-				"domain", domain,
-				"upstream_group", upstreamGroup,
-			)
+			// Removed debug logging from hot path for performance
+			// This is called on every DNS query and logging impacts QPS
 			
 			// Get upstream config for the matched group
 			customUpsConf := s.getCustomUpstreamConfigForGroup(ctx, upstreamGroup)
@@ -604,6 +600,7 @@ func (s *Server) setCustomUpstream(ctx context.Context, pctx *proxy.DNSContext, 
 				return
 			}
 			
+			// Keep warning log as this indicates a configuration problem
 			s.logger.WarnContext(
 				ctx,
 				"upstream group not found",
@@ -633,7 +630,19 @@ func (s *Server) setCustomUpstream(ctx context.Context, pctx *proxy.DNSContext, 
 
 // getCustomUpstreamConfigForGroup returns the custom upstream configuration for a given upstream group ID.
 // It looks up the group in the global configuration and creates a proxy.CustomUpstreamConfig.
+// The configuration is cached to avoid re-parsing on every DNS query.
 func (s *Server) getCustomUpstreamConfigForGroup(ctx context.Context, groupID string) *proxy.CustomUpstreamConfig {
+	// Check cache first (read lock)
+	s.upstreamConfigMu.RLock()
+	if cached, ok := s.upstreamConfigCache[groupID]; ok {
+		s.upstreamConfigMu.RUnlock()
+		// Removed debug logging from hot path for performance
+		// Cache hit is the common case and logging here impacts QPS
+		return cached
+	}
+	s.upstreamConfigMu.RUnlock()
+	
+	// Cache miss, need to parse configuration
 	// Get upstream group getter from config
 	if s.conf.UpstreamGroupGetter == nil {
 		s.logger.DebugContext(ctx, "upstream group getter not configured")
@@ -646,7 +655,17 @@ func (s *Server) getCustomUpstreamConfigForGroup(ctx context.Context, groupID st
 		return nil
 	}
 	
-	s.logger.InfoContext(ctx, "using upstream group for DNS routing",
+	// Acquire write lock for cache update
+	s.upstreamConfigMu.Lock()
+	defer s.upstreamConfigMu.Unlock()
+	
+	// Double-check: another goroutine might have populated the cache
+	if cached, ok := s.upstreamConfigCache[groupID]; ok {
+		// Removed debug logging from hot path for performance
+		return cached
+	}
+	
+	s.logger.InfoContext(ctx, "parsing upstream group configuration",
 		"group_id", groupID,
 		"group_name", group.Name,
 		"upstreams_count", len(group.UpstreamDNS),
@@ -716,7 +735,10 @@ func (s *Server) getCustomUpstreamConfigForGroup(ctx context.Context, groupID st
 		s.conf.CacheOptimistic,
 	)
 
-	s.logger.DebugContext(ctx, "created custom upstream config for group",
+	// Cache the result
+	s.upstreamConfigCache[groupID] = customConf
+	
+	s.logger.InfoContext(ctx, "cached upstream config for group",
 		"group_id", groupID,
 		"upstreams", len(uc.Upstreams),
 	)

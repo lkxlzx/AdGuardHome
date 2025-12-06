@@ -343,6 +343,15 @@ type ServerConfig struct {
 	// PendingRequestsEnabled defines if duplicate requests should be forwarded
 	// to upstreams along with the original one.
 	PendingRequestsEnabled bool
+	
+	// RoutingCacheEnabled enables the DNS routing cache.
+	RoutingCacheEnabled bool
+	
+	// RoutingCacheSize is the maximum number of entries in the routing cache.
+	RoutingCacheSize int
+	
+	// RoutingCacheTTL is the TTL for routing cache entries.
+	RoutingCacheTTL time.Duration
 }
 
 // UpstreamMode is a enumeration of upstream mode representations.  See

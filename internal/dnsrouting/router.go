@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // MatchType represents the type of domain matching.
@@ -33,6 +34,10 @@ type Rule struct {
 	Priority int
 	// Enabled indicates if the rule is active.
 	Enabled bool
+	
+	// normalizedDomain is the pre-processed domain (lowercase, no trailing dot).
+	// This is computed once when the rule is created to avoid repeated string operations.
+	normalizedDomain string
 }
 
 // RuleSource represents a source of routing rules (from URL or custom).
@@ -71,6 +76,12 @@ type Router struct {
 	// customRules are user-defined rules.
 	customRules []Rule
 	
+	// cache is the LRU cache for routing results.
+	cache *LRUCache
+	
+	// metrics tracks cache performance.
+	metrics *cacheMetrics
+	
 	// logger is the logger instance.
 	logger *slog.Logger
 }
@@ -84,6 +95,20 @@ func NewRouter(logger *slog.Logger) *Router {
 		sources:       make(map[int64]*RuleSource),
 		sortedSources: make([]*RuleSource, 0), // Will be populated by AddSource/UpdateSource
 		customRules:   make([]Rule, 0),
+		cache:         NewLRUCache(10000, 5*time.Minute), // Cache 10000 domains for 5 minutes
+		metrics:       &cacheMetrics{},
+		logger:        logger,
+	}
+}
+
+// NewRouterWithCache creates a new DNS router with custom cache settings.
+func NewRouterWithCache(logger *slog.Logger, cacheSize int, cacheTTL time.Duration) *Router {
+	return &Router{
+		sources:       make(map[int64]*RuleSource),
+		sortedSources: make([]*RuleSource, 0),
+		customRules:   make([]Rule, 0),
+		cache:         NewLRUCache(cacheSize, cacheTTL),
+		metrics:       &cacheMetrics{},
 		logger:        logger,
 	}
 }
@@ -97,10 +122,18 @@ func (r *Router) AddSource(source *RuleSource) error {
 		return fmt.Errorf("source with ID %d already exists", source.ID)
 	}
 
+	// Pre-normalize all rule domains for performance
+	normalizeRules(source.Rules)
+	
 	r.sources[source.ID] = source
 	
 	// Rebuild sorted sources for performance
 	r.rebuildSortedSources()
+	
+	// Clear cache when sources change
+	if r.cache != nil {
+		r.cache.Clear()
+	}
 	
 	r.logger.InfoContext(context.TODO(), "added routing source",
 		"id", source.ID,
@@ -120,7 +153,15 @@ func (r *Router) UpdateSource(source *RuleSource) error {
 		return fmt.Errorf("source with ID %d not found", source.ID)
 	}
 
+	// Pre-normalize all rule domains for performance
+	normalizeRules(source.Rules)
+	
 	r.sources[source.ID] = source
+	
+	// Clear cache when sources change
+	if r.cache != nil {
+		r.cache.Clear()
+	}
 	
 	// Rebuild sorted sources for performance
 	r.rebuildSortedSources()
@@ -180,7 +221,16 @@ func (r *Router) SetCustomRules(rules []Rule) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Pre-normalize all rule domains for performance
+	normalizeRules(rules)
+	
 	r.customRules = rules
+	
+	// Clear cache when rules change
+	if r.cache != nil {
+		r.cache.Clear()
+	}
+	
 	r.logger.InfoContext(context.TODO(), "updated custom routing rules", "count", len(rules))
 }
 
@@ -196,11 +246,28 @@ func (r *Router) GetCustomRules() []Rule {
 
 // Match finds the upstream group for a given domain.
 // Returns the upstream group ID and true if a match is found.
+// 
+// Note: The ctx parameter is kept for API compatibility but is not currently used
+// in the hot path for performance reasons. All debug logging has been removed from
+// the matching logic to maximize throughput.
 func (r *Router) Match(ctx context.Context, domain string) (upstreamGroup string, matched bool) {
+	// Normalize domain once at the entry point
+	domain = normalizeDomain(domain)
+
+	// Check cache first (without holding the lock)
+	if r.cache != nil {
+		if entry, found := r.cache.Get(domain); found {
+			r.metrics.RecordHit()
+			// Removed debug logging from hot path for performance
+			// Cache hit is the most common case and logging here impacts QPS significantly
+			return entry.UpstreamGroup, entry.Matched
+		}
+		r.metrics.RecordMiss()
+	}
+
+	// Cache miss, perform full match
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
-	domain = strings.ToLower(strings.TrimSuffix(domain, "."))
 
 	// First, check custom rules (highest priority)
 	for _, rule := range r.customRules {
@@ -209,50 +276,53 @@ func (r *Router) Match(ctx context.Context, domain string) (upstreamGroup string
 		}
 
 		if r.matchRule(domain, rule) {
-			// Use Debug level for match logging to avoid log spam at high QPS
-			// Set log level to DEBUG to see these messages
-			r.logger.DebugContext(ctx, "matched custom rule",
-				"domain", domain,
-				"rule_domain", rule.Domain,
-				"match_type", rule.MatchType,
-				"upstream_group", rule.UpstreamGroup,
-			)
+			// Removed debug logging from hot path for performance
+			// Logging on every match significantly impacts QPS in high-traffic scenarios
+			
+			// Cache the result
+			if r.cache != nil {
+				r.cache.Put(domain, rule.UpstreamGroup, true)
+			}
+			
 			return rule.UpstreamGroup, true
 		}
 	}
 
 	// Then, check source rules by priority (use pre-sorted list)
+	// Note: sortedSources only contains enabled sources, so no need to check source.Enabled
 	for _, source := range r.sortedSources {
-		if !source.Enabled {
-			continue
-		}
 		for _, rule := range source.Rules {
 			if !rule.Enabled {
 				continue
 			}
 
 			if r.matchRule(domain, rule) {
-				// Use Debug level for match logging to avoid log spam at high QPS
-				// Set log level to DEBUG to see these messages
-				r.logger.DebugContext(ctx, "matched source rule",
-					"domain", domain,
-					"source_id", source.ID,
-					"source_name", source.Name,
-					"rule_domain", rule.Domain,
-					"match_type", rule.MatchType,
-					"upstream_group", rule.UpstreamGroup,
-				)
+				// Removed debug logging from hot path for performance
+				// Logging on every match significantly impacts QPS in high-traffic scenarios
+				
+				// Cache the result
+				if r.cache != nil {
+					r.cache.Put(domain, rule.UpstreamGroup, true)
+				}
+				
 				return rule.UpstreamGroup, true
 			}
 		}
+	}
+
+	// No match found, cache the negative result
+	if r.cache != nil {
+		r.cache.Put(domain, "", false)
 	}
 
 	return "", false
 }
 
 // matchRule checks if a domain matches a rule.
+// Uses pre-normalized domain from rule to avoid repeated string operations.
 func (r *Router) matchRule(domain string, rule Rule) bool {
-	ruleDomain := strings.ToLower(strings.TrimSuffix(rule.Domain, "."))
+	// Use pre-normalized domain (computed once when rule was created)
+	ruleDomain := rule.normalizedDomain
 
 	switch rule.MatchType {
 	case MatchTypeDomain:
@@ -273,6 +343,20 @@ func (r *Router) matchRule(domain string, rule Rule) bool {
 
 	default:
 		return false
+	}
+}
+
+// normalizeDomain normalizes a domain name for matching.
+// It converts to lowercase and removes trailing dot.
+func normalizeDomain(domain string) string {
+	return strings.ToLower(strings.TrimSuffix(domain, "."))
+}
+
+// normalizeRules pre-processes all rules by normalizing their domains.
+// This is done once when rules are loaded to avoid repeated string operations during matching.
+func normalizeRules(rules []Rule) {
+	for i := range rules {
+		rules[i].normalizedDomain = normalizeDomain(rules[i].Domain)
 	}
 }
 
@@ -299,15 +383,52 @@ func (r *Router) Stats() map[string]interface{} {
 }
 
 // rebuildSortedSources rebuilds the sorted sources list.
+// Only includes enabled sources to avoid checking disabled sources during matching.
 // Must be called with write lock held.
 func (r *Router) rebuildSortedSources() {
 	r.sortedSources = make([]*RuleSource, 0, len(r.sources))
 	for _, source := range r.sources {
-		r.sortedSources = append(r.sortedSources, source)
+		// Only include enabled sources in the sorted list
+		// This avoids checking source.Enabled on every match
+		if source.Enabled {
+			r.sortedSources = append(r.sortedSources, source)
+		}
 	}
 	
 	// Sort by priority (lower number = higher priority)
 	sort.Slice(r.sortedSources, func(i, j int) bool {
 		return r.sortedSources[i].Priority < r.sortedSources[j].Priority
 	})
+}
+
+// ClearCache clears the routing cache.
+func (r *Router) ClearCache() {
+	if r.cache != nil {
+		r.cache.Clear()
+		r.logger.InfoContext(context.TODO(), "cleared routing cache")
+	}
+}
+
+// GetCacheStats returns cache statistics.
+func (r *Router) GetCacheStats() map[string]interface{} {
+	if r.cache == nil {
+		return map[string]interface{}{
+			"enabled": false,
+		}
+	}
+
+	return map[string]interface{}{
+		"enabled":  true,
+		"size":     r.cache.Len(),
+		"capacity": r.cache.capacity,
+		"hit_rate": r.metrics.GetHitRate(),
+	}
+}
+
+// ResetCacheMetrics resets the cache performance metrics.
+func (r *Router) ResetCacheMetrics() {
+	if r.metrics != nil {
+		r.metrics.Reset()
+		r.logger.InfoContext(context.TODO(), "reset cache metrics")
+	}
 }

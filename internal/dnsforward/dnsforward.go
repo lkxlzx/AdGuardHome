@@ -166,6 +166,13 @@ type Server struct {
 	// It is independent from dnsFilter and does not block domains.
 	dnsRouter *dnsrouting.Router
 
+	// upstreamConfigCache caches parsed upstream configurations for each upstream group.
+	// This avoids re-parsing upstream configurations on every DNS query.
+	upstreamConfigCache map[string]*proxy.CustomUpstreamConfig
+	
+	// upstreamConfigMu protects upstreamConfigCache.
+	upstreamConfigMu sync.RWMutex
+
 	// dnsProxy is the DNS proxy for forwarding client's DNS requests.
 	dnsProxy *proxy.Proxy
 
@@ -279,7 +286,8 @@ func NewServer(p DNSCreateParams) (s *Server, err error) {
 			EnableLRU: true,
 			MaxCount:  defaultClientIDCacheCount,
 		}),
-		anonymizer: p.Anonymizer,
+		anonymizer:          p.Anonymizer,
+		upstreamConfigCache: make(map[string]*proxy.CustomUpstreamConfig),
 		conf: ServerConfig{
 			ServePlainDNS: true,
 		},
@@ -597,8 +605,21 @@ func (s *Server) initializeDnsRouter(ctx context.Context) {
 		"custom_rules", len(customRules),
 		"total", totalRules)
 	
-	// Create router instance
-	s.dnsRouter = dnsrouting.NewRouter(s.logger)
+	// Create router instance with cache configuration
+	if s.conf.RoutingCacheEnabled && s.conf.RoutingCacheSize > 0 {
+		s.dnsRouter = dnsrouting.NewRouterWithCache(
+			s.logger,
+			s.conf.RoutingCacheSize,
+			s.conf.RoutingCacheTTL,
+		)
+		s.logger.InfoContext(ctx, "DNS routing cache enabled",
+			"size", s.conf.RoutingCacheSize,
+			"ttl", s.conf.RoutingCacheTTL,
+		)
+	} else {
+		s.dnsRouter = dnsrouting.NewRouter(s.logger)
+		s.logger.InfoContext(ctx, "DNS routing cache disabled")
+	}
 	
 	// Convert custom domain rules to dnsrouting.Rule format
 	routingRules := make([]dnsrouting.Rule, 0, len(customRules))
@@ -736,7 +757,15 @@ func (s *Server) ReloadDnsRouter(ctx context.Context) {
 	
 	// Create or recreate router
 	if s.dnsRouter == nil {
-		s.dnsRouter = dnsrouting.NewRouter(s.logger)
+		if s.conf.RoutingCacheEnabled && s.conf.RoutingCacheSize > 0 {
+			s.dnsRouter = dnsrouting.NewRouterWithCache(
+				s.logger,
+				s.conf.RoutingCacheSize,
+				s.conf.RoutingCacheTTL,
+			)
+		} else {
+			s.dnsRouter = dnsrouting.NewRouter(s.logger)
+		}
 	}
 	
 	// Convert custom domain rules to dnsrouting.Rule format
@@ -785,7 +814,15 @@ func (s *Server) UpdateDnsRoutingRules(filterID int64, upstreamGroup string, pri
 	// Create router if it doesn't exist
 	if s.dnsRouter == nil {
 		s.logger.InfoContext(ctx, "creating DNS router on demand")
-		s.dnsRouter = dnsrouting.NewRouter(s.logger)
+		if s.conf.RoutingCacheEnabled && s.conf.RoutingCacheSize > 0 {
+			s.dnsRouter = dnsrouting.NewRouterWithCache(
+				s.logger,
+				s.conf.RoutingCacheSize,
+				s.conf.RoutingCacheTTL,
+			)
+		} else {
+			s.dnsRouter = dnsrouting.NewRouter(s.logger)
+		}
 	}
 	
 	s.logger.InfoContext(ctx, "updating DNS routing rules from filtering module",
@@ -1255,4 +1292,27 @@ func (s *Server) IsBlockedClient(ip netip.Addr, clientID string) (blocked bool, 
 	}
 
 	return blocked, cmp.Or(rule, clientID)
+}
+
+// InvalidateUpstreamCache clears the cached upstream configuration for a specific group.
+// This should be called when the upstream group configuration is updated.
+func (s *Server) InvalidateUpstreamCache(groupID string) {
+	s.upstreamConfigMu.Lock()
+	defer s.upstreamConfigMu.Unlock()
+	
+	if _, ok := s.upstreamConfigCache[groupID]; ok {
+		delete(s.upstreamConfigCache, groupID)
+		s.logger.Info("invalidated upstream cache", "group_id", groupID)
+	}
+}
+
+// InvalidateAllUpstreamCache clears all cached upstream configurations.
+// This should be called when multiple upstream groups are updated.
+func (s *Server) InvalidateAllUpstreamCache() {
+	s.upstreamConfigMu.Lock()
+	defer s.upstreamConfigMu.Unlock()
+	
+	count := len(s.upstreamConfigCache)
+	s.upstreamConfigCache = make(map[string]*proxy.CustomUpstreamConfig)
+	s.logger.Info("invalidated all upstream cache", "count", count)
 }

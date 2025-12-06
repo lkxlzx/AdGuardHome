@@ -128,6 +128,15 @@ type jsonDNSConfig struct {
 	
 	// CustomDomainRules is the list of custom domain routing rules for DNS routing.
 	CustomDomainRules *[]CustomDomainRule `json:"custom_domain_rules,omitempty"`
+	
+	// RoutingCacheEnabled enables the DNS routing cache.
+	RoutingCacheEnabled *bool `json:"routing_cache_enabled,omitempty"`
+	
+	// RoutingCacheSize is the maximum number of entries in the routing cache.
+	RoutingCacheSize *int `json:"routing_cache_size,omitempty"`
+	
+	// RoutingCacheTTL is the TTL for routing cache entries in minutes.
+	RoutingCacheTTL *int `json:"routing_cache_ttl,omitempty"`
 }
 
 // CustomDomainRule represents a custom domain routing rule.
@@ -185,6 +194,9 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 	resolveClients := s.conf.AddrProcConf.UseRDNS
 	usePrivateRDNS := s.conf.UsePrivateRDNS
 	localPTRUpstreams := stringutil.CloneSliceOrEmpty(s.conf.LocalPTRResolvers)
+	routingCacheEnabled := s.conf.RoutingCacheEnabled
+	routingCacheSize := s.conf.RoutingCacheSize
+	routingCacheTTL := int(s.conf.RoutingCacheTTL.Minutes())
 
 	var upstreamMode jsonUpstreamMode
 	switch s.conf.UpstreamMode {
@@ -253,6 +265,9 @@ func (s *Server) getDNSConfig(ctx context.Context) (c *jsonDNSConfig) {
 		DefaultLocalPTRUpstreams: defPTRUps,
 		DisabledUntil:            protectionDisabledUntil,
 		CustomDomainRules:        customDomainRules,
+		RoutingCacheEnabled:      &routingCacheEnabled,
+		RoutingCacheSize:         &routingCacheSize,
+		RoutingCacheTTL:          &routingCacheTTL,
 	}
 }
 

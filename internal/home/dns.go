@@ -403,6 +403,11 @@ func newServerConfig(
 		UseHTTP3Upstreams:      dnsConf.UseHTTP3Upstreams,
 		ServePlainDNS:          dnsConf.ServePlainDNS,
 		PendingRequestsEnabled: dnsConf.PendingRequests.Enabled,
+		
+		// DNS Routing Cache Configuration
+		RoutingCacheEnabled: dnsConf.RoutingCacheEnabled,
+		RoutingCacheSize:    dnsConf.RoutingCacheSize,
+		RoutingCacheTTL:     time.Duration(dnsConf.RoutingCacheTTL) * time.Minute,
 	}
 
 	var initialAddresses []netip.Addr

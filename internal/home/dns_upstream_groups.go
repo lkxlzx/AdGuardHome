@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardHome/internal/aghhttp"
@@ -66,14 +67,12 @@ func (web *webAPI) handleAddUpstreamGroup(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Check for duplicate name
+	// Check for duplicate name using O(1) lookup (optimized from O(n) linear search)
 	config.RLock()
-	for _, g := range config.DNS.UpstreamGroups {
-		if g.Name == req.Name {
-			config.RUnlock()
-			aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusConflict, "group with name %q already exists", req.Name)
-			return
-		}
+	if config.DNS.isUpstreamGroupNameExists(req.Name, "") {
+		config.RUnlock()
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusConflict, "group with name %q already exists", req.Name)
+		return
 	}
 	config.RUnlock()
 
@@ -93,14 +92,18 @@ func (web *webAPI) handleAddUpstreamGroup(w http.ResponseWriter, r *http.Request
 
 	// Modify config - config.write will handle locking
 	config.Lock()
-	// If this is set as default, unset other defaults
+	// If this is set as default, unset other defaults using O(1) method
 	if group.IsDefault {
-		for i := range config.DNS.UpstreamGroups {
-			config.DNS.UpstreamGroups[i].IsDefault = false
+		oldDefaultIndex := int(atomic.LoadInt32(&config.DNS.defaultUpstreamGroupIndex))
+		if oldDefaultIndex >= 0 && oldDefaultIndex < len(config.DNS.UpstreamGroups) {
+			config.DNS.UpstreamGroups[oldDefaultIndex].IsDefault = false
 		}
 	}
 	// Add to config
 	config.DNS.UpstreamGroups = append(config.DNS.UpstreamGroups, group)
+	
+	// Rebuild caches after adding group
+	config.DNS.rebuildAllUpstreamGroupCaches()
 	config.Unlock()
 
 	// Save config (config.write handles its own locking)
@@ -137,28 +140,21 @@ func (web *webAPI) handleUpdateUpstreamGroup(w http.ResponseWriter, r *http.Requ
 	}
 
 	config.Lock()
-	// Find the group
-	groupIndex := -1
-	for i, g := range config.DNS.UpstreamGroups {
-		if g.ID == id {
-			groupIndex = i
-			break
-		}
-	}
-
-	if groupIndex == -1 {
+	// Find the group using O(1) index lookup (optimized from O(n) linear search)
+	groupIndex, found := config.DNS.getUpstreamGroupIndex(id)
+	if !found {
 		config.Unlock()
 		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusNotFound, "group not found")
 		return
 	}
 
-	// Check for duplicate name (excluding current group)
-	for i, g := range config.DNS.UpstreamGroups {
-		if i != groupIndex && g.Name == req.Name {
-			config.Unlock()
-			aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusConflict, "group with name %q already exists", req.Name)
-			return
-		}
+	// Check for duplicate name using O(1) lookup (optimized from O(n) linear search)
+	// Exclude current group by passing its ID
+	currentGroupID := config.DNS.UpstreamGroups[groupIndex].ID
+	if config.DNS.isUpstreamGroupNameExists(req.Name, currentGroupID) {
+		config.Unlock()
+		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusConflict, "group with name %q already exists", req.Name)
+		return
 	}
 
 	// Update group
@@ -178,18 +174,18 @@ func (web *webAPI) handleUpdateUpstreamGroup(w http.ResponseWriter, r *http.Requ
 	group.BootstrapDNS = req.BootstrapDNS
 	group.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
-	// If this is set as default, unset other defaults
+	// If this is set as default, use O(1) optimized method
 	if req.IsDefault && !group.IsDefault {
-		for i := range config.DNS.UpstreamGroups {
-			config.DNS.UpstreamGroups[i].IsDefault = false
-		}
-		group.IsDefault = true
+		config.DNS.setDefaultUpstreamGroup(groupIndex)
 	} else if !req.IsDefault && group.IsDefault {
 		// Cannot unset default without setting another
 		config.Unlock()
 		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusBadRequest, "cannot unset default group without setting another")
 		return
 	}
+	
+	// Rebuild caches after updating group
+	config.DNS.rebuildAllUpstreamGroupCaches()
 	config.Unlock()
 
 	// Save config (config.write handles its own locking)
@@ -214,16 +210,9 @@ func (web *webAPI) handleDeleteUpstreamGroup(w http.ResponseWriter, r *http.Requ
 	}
 
 	config.Lock()
-	// Find the group
-	groupIndex := -1
-	for i, g := range config.DNS.UpstreamGroups {
-		if g.ID == id {
-			groupIndex = i
-			break
-		}
-	}
-
-	if groupIndex == -1 {
+	// Find the group using O(1) index lookup (optimized from O(n) linear search)
+	groupIndex, found := config.DNS.getUpstreamGroupIndex(id)
+	if !found {
 		config.Unlock()
 		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusNotFound, "group not found")
 		return
@@ -241,6 +230,9 @@ func (web *webAPI) handleDeleteUpstreamGroup(w http.ResponseWriter, r *http.Requ
 		config.DNS.UpstreamGroups[:groupIndex],
 		config.DNS.UpstreamGroups[groupIndex+1:]...,
 	)
+	
+	// Rebuild caches after deleting group
+	config.DNS.rebuildAllUpstreamGroupCaches()
 	config.Unlock()
 
 	// Save config (config.write handles its own locking)
@@ -264,29 +256,20 @@ func (web *webAPI) handleSetDefaultGroup(w http.ResponseWriter, r *http.Request)
 	}
 
 	config.Lock()
-	// Find the group
-	groupIndex := -1
-	for i, g := range config.DNS.UpstreamGroups {
-		if g.ID == id {
-			groupIndex = i
-			break
-		}
-	}
-
-	if groupIndex == -1 {
+	// Find the group using O(1) index lookup (optimized from O(n) linear search)
+	groupIndex, found := config.DNS.getUpstreamGroupIndex(id)
+	if !found {
 		config.Unlock()
 		aghhttp.ErrorAndLog(ctx, l, r, w, http.StatusNotFound, "group not found")
 		return
 	}
 
-	// Unset all defaults
-	for i := range config.DNS.UpstreamGroups {
-		config.DNS.UpstreamGroups[i].IsDefault = false
-	}
-
-	// Set new default
-	config.DNS.UpstreamGroups[groupIndex].IsDefault = true
+	// Set as default using O(1) optimized method (replaces O(n) loop)
+	config.DNS.setDefaultUpstreamGroup(groupIndex)
 	config.DNS.UpstreamGroups[groupIndex].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	
+	// Rebuild caches after setting default
+	config.DNS.rebuildAllUpstreamGroupCaches()
 	config.Unlock()
 
 	// Save config (config.write handles its own locking)

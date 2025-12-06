@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/AdguardTeam/AdGuardHome/internal/agh"
 	"github.com/AdguardTeam/AdGuardHome/internal/aghalg"
@@ -278,6 +279,34 @@ type dnsConfig struct {
 	
 	// CustomDomainRules is the list of custom domain routing rules.
 	CustomDomainRules []CustomDomainRule `yaml:"custom_domain_rules"`
+	
+	// RoutingCacheEnabled enables the DNS routing cache.
+	RoutingCacheEnabled bool `yaml:"routing_cache_enabled"`
+	
+	// RoutingCacheSize is the maximum number of entries in the routing cache.
+	RoutingCacheSize int `yaml:"routing_cache_size"`
+	
+	// RoutingCacheTTL is the TTL for routing cache entries in minutes.
+	RoutingCacheTTL int `yaml:"routing_cache_ttl"`
+	
+	// upstreamGroupCache caches upstream group configurations for O(1) lookup.
+	// This avoids O(n) linear search through UpstreamGroups slice on every DNS query.
+	upstreamGroupCache sync.Map
+	
+	// upstreamCacheBuilt indicates if the upstream group cache has been built.
+	upstreamCacheBuilt int32
+	
+	// upstreamGroupIndexMap maps group ID to its index in UpstreamGroups slice.
+	// This enables O(1) lookup for management operations (update, delete, etc).
+	upstreamGroupIndexMap sync.Map
+	
+	// upstreamGroupNameMap maps group name to group ID for O(1) duplicate name checking.
+	upstreamGroupNameMap sync.Map
+	
+	// defaultUpstreamGroupIndex stores the index of the default upstream group.
+	// This enables O(1) access to the default group without scanning all groups.
+	// Use atomic operations to access this field.
+	defaultUpstreamGroupIndex int32
 }
 
 // CustomDomainRule represents a custom domain routing rule.
@@ -739,6 +768,16 @@ func parseConfig(ctx context.Context, l *slog.Logger, workDir, confPath string) 
 		config.DNS.UpstreamTimeout = timeutil.Duration(dnsforward.DefaultTimeout)
 	}
 
+	// Set default routing cache configuration if not specified
+	if config.DNS.RoutingCacheSize == 0 {
+		config.DNS.RoutingCacheEnabled = true
+		config.DNS.RoutingCacheSize = 10000
+		config.DNS.RoutingCacheTTL = 5 // minutes
+	}
+
+	// Build upstream group caches after loading configuration
+	config.DNS.rebuildAllUpstreamGroupCaches()
+
 	// Do not wrap the error because it's informative enough as is.
 	return validateTLSCipherIDs(config.TLS.OverrideTLSCiphers)
 }
@@ -1034,4 +1073,162 @@ func (cm *defaultConfigModifier) setAuth(a *auth) {
 // setTLSManager sets the TLS manager used by Apply.
 func (cm *defaultConfigModifier) setTLSManager(m *tlsManager) {
 	cm.tlsMgr = m
+}
+
+// buildUpstreamGroupCache builds the upstream group lookup cache for O(1) access.
+// This method is thread-safe and can be called multiple times.
+func (c *dnsConfig) buildUpstreamGroupCache() {
+	if atomic.LoadInt32(&c.upstreamCacheBuilt) == 1 {
+		return // Cache already built
+	}
+	
+	// Clear existing cache
+	c.upstreamGroupCache.Range(func(key, value interface{}) bool {
+		c.upstreamGroupCache.Delete(key)
+		return true
+	})
+	
+	// Build new cache with only enabled groups
+	for _, group := range c.UpstreamGroups {
+		if group.Enabled {
+			// Pre-build the configuration object to avoid runtime conversion
+			config := &dnsforward.UpstreamGroupConfig{
+				Name:         group.Name,
+				UpstreamDNS:  append([]string(nil), group.UpstreamDNS...),   // Deep copy
+				BootstrapDNS: append([]string(nil), group.BootstrapDNS...), // Deep copy
+				FallbackDNS:  append([]string(nil), group.FallbackDNS...),  // Deep copy
+			}
+			c.upstreamGroupCache.Store(group.ID, config)
+		}
+	}
+	
+	atomic.StoreInt32(&c.upstreamCacheBuilt, 1)
+}
+
+// invalidateUpstreamGroupCache marks the cache as invalid and clears it.
+// This should be called when upstream groups are modified.
+func (c *dnsConfig) invalidateUpstreamGroupCache() {
+	atomic.StoreInt32(&c.upstreamCacheBuilt, 0)
+	
+	// Clear the cache
+	c.upstreamGroupCache.Range(func(key, value interface{}) bool {
+		c.upstreamGroupCache.Delete(key)
+		return true
+	})
+}
+
+// getUpstreamGroupConfig performs O(1) lookup of upstream group configuration.
+// Returns nil if the group is not found or not enabled.
+func (c *dnsConfig) getUpstreamGroupConfig(groupID string) *dnsforward.UpstreamGroupConfig {
+	// Ensure cache is built
+	if atomic.LoadInt32(&c.upstreamCacheBuilt) == 0 {
+		c.buildUpstreamGroupCache()
+	}
+	
+	// O(1) lookup
+	if value, ok := c.upstreamGroupCache.Load(groupID); ok {
+		return value.(*dnsforward.UpstreamGroupConfig)
+	}
+	return nil
+}
+
+// buildUpstreamGroupIndexMap builds the ID-to-index mapping for O(1) index lookup.
+// This enables fast management operations (update, delete, set default).
+// Must be called whenever UpstreamGroups slice is modified.
+func (c *dnsConfig) buildUpstreamGroupIndexMap() {
+	// Clear existing map
+	c.upstreamGroupIndexMap.Range(func(key, value interface{}) bool {
+		c.upstreamGroupIndexMap.Delete(key)
+		return true
+	})
+	
+	// Build new map
+	for i, group := range c.UpstreamGroups {
+		c.upstreamGroupIndexMap.Store(group.ID, i)
+	}
+}
+
+// getUpstreamGroupIndex performs O(1) lookup of group index by ID.
+// Returns the index and true if found, -1 and false otherwise.
+func (c *dnsConfig) getUpstreamGroupIndex(id string) (int, bool) {
+	if value, ok := c.upstreamGroupIndexMap.Load(id); ok {
+		return value.(int), true
+	}
+	return -1, false
+}
+
+// buildUpstreamGroupNameMap builds the name-to-ID mapping for O(1) duplicate name checking.
+// Must be called whenever UpstreamGroups slice is modified.
+func (c *dnsConfig) buildUpstreamGroupNameMap() {
+	// Clear existing map
+	c.upstreamGroupNameMap.Range(func(key, value interface{}) bool {
+		c.upstreamGroupNameMap.Delete(key)
+		return true
+	})
+	
+	// Build new map
+	for _, group := range c.UpstreamGroups {
+		c.upstreamGroupNameMap.Store(group.Name, group.ID)
+	}
+}
+
+// isUpstreamGroupNameExists performs O(1) check if a group name already exists.
+// excludeID allows checking for duplicates while excluding a specific group (for updates).
+// Returns true if the name exists and belongs to a different group.
+func (c *dnsConfig) isUpstreamGroupNameExists(name string, excludeID string) bool {
+	if value, ok := c.upstreamGroupNameMap.Load(name); ok {
+		existingID := value.(string)
+		return existingID != excludeID
+	}
+	return false
+}
+
+// updateDefaultUpstreamGroupIndex updates the cached index of the default group.
+// This should be called after any modification to UpstreamGroups slice.
+func (c *dnsConfig) updateDefaultUpstreamGroupIndex() {
+	// Find and cache the default group index
+	for i, group := range c.UpstreamGroups {
+		if group.IsDefault {
+			atomic.StoreInt32(&c.defaultUpstreamGroupIndex, int32(i))
+			return
+		}
+	}
+	// No default found, set to -1
+	atomic.StoreInt32(&c.defaultUpstreamGroupIndex, -1)
+}
+
+// setDefaultUpstreamGroup sets a group as default and unsets the previous default.
+// This is an O(1) operation using the cached default group index.
+// The index parameter is the index of the group to set as default.
+func (c *dnsConfig) setDefaultUpstreamGroup(index int) {
+	// Get the current default index
+	oldDefaultIndex := int(atomic.LoadInt32(&c.defaultUpstreamGroupIndex))
+	
+	// Unset the old default (O(1) operation)
+	if oldDefaultIndex >= 0 && oldDefaultIndex < len(c.UpstreamGroups) {
+		c.UpstreamGroups[oldDefaultIndex].IsDefault = false
+	}
+	
+	// Set the new default
+	if index >= 0 && index < len(c.UpstreamGroups) {
+		c.UpstreamGroups[index].IsDefault = true
+		atomic.StoreInt32(&c.defaultUpstreamGroupIndex, int32(index))
+	}
+}
+
+// rebuildAllUpstreamGroupCaches rebuilds all upstream group caches.
+// This should be called after any modification to UpstreamGroups slice.
+func (c *dnsConfig) rebuildAllUpstreamGroupCaches() {
+	// Rebuild configuration cache (for DNS queries)
+	c.invalidateUpstreamGroupCache()
+	c.buildUpstreamGroupCache()
+	
+	// Rebuild index map (for management operations)
+	c.buildUpstreamGroupIndexMap()
+	
+	// Rebuild name map (for duplicate checking)
+	c.buildUpstreamGroupNameMap()
+	
+	// Update default group index
+	c.updateDefaultUpstreamGroupIndex()
 }

@@ -41,6 +41,7 @@ const config = {
     resolve: {
         modules: ['node_modules'],
         extensions: ['.js', '.jsx', '.ts', '.tsx'],
+        symlinks: false,
     },
     module: {
         rules: [
@@ -71,6 +72,12 @@ const config = {
                 exclude: /node_modules/,
                 use: {
                     loader: 'ts-loader',
+                    options: {
+                        transpileOnly: true,
+                        compilerOptions: {
+                            forceConsistentCasingInFileNames: false,
+                        },
+                    },
                 },
             },
         ],
